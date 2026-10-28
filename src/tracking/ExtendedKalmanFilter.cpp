@@ -2,7 +2,7 @@
 
 #include <cassert>
 
-#include "core/Sensor.hpp"
+#include "sensors/Sensor.hpp"
 
 namespace sfsim {
 

@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
-#include "core/Measurement.hpp"
-#include "core/Sensor.hpp"
+#include "sensors/Measurement.hpp"
+#include "sensors/Sensor.hpp"
 
 namespace sfsim {
 

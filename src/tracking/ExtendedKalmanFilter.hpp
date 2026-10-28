@@ -1,6 +1,6 @@
 #pragma once
 #include "core/Types.hpp"
-#include "core/Measurement.hpp"
+#include "sensors/Measurement.hpp"
 
 namespace sfsim {
 

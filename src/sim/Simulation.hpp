@@ -2,7 +2,7 @@
 #include <memory>
 #include <random>
 #include <vector>
-#include "core/Sensor.hpp"
+#include "sensors/Sensor.hpp"
 #include "core/RateCounter.hpp"
 #include "sim/Snapshot.hpp"
 #include "tracking/IFusion.hpp"

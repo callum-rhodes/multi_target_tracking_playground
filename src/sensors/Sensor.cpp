@@ -1,4 +1,4 @@
-#include "core/Sensor.hpp"
+#include "sensors/Sensor.hpp"
 #include "core/maths.hpp"
 #include <cmath>
 

@@ -1,8 +1,8 @@
 #pragma once
 #include <random>
 #include <vector>
-#include "core/Measurement.hpp"
-#include "core/MeasurementModel.hpp"
+#include "sensors/Measurement.hpp"
+#include "sensors/MeasurementModel.hpp"
 #include "core/Target.hpp"
 
 namespace sfsim {

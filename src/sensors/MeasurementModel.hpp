@@ -7,7 +7,7 @@
 // sensor's meas_type, so callers never branch on the measurement type.
 
 #include <Eigen/Dense>
-#include "core/Measurement.hpp"  // Measurement, MeasType
+#include "sensors/Measurement.hpp"  // Measurement, MeasType
 
 namespace sfsim {
 

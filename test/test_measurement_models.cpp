@@ -1,5 +1,5 @@
 // Framework-free tests: returns non-zero on failure. Hook into CTest with add_test().
-#include "core/MeasurementModels.hpp"
+#include "sensors/MeasurementModels.hpp"
 #include "core/maths.hpp"
 #include <cmath>
 #include <cstdio>

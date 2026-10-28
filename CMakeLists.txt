@@ -22,9 +22,8 @@ endif()
 # Layers A-C: no rendering dependencies, so it stays testable and headless-capable
 add_library(sfsim_core
   src/core/Target.cpp
-  src/core/Sensor.cpp
-  src/core/MeasurementModel.cpp
-  src/tracking/KalmanFilter.cpp
+  src/sensors/Sensor.cpp
+  src/sensors/MeasurementModel.cpp
   src/tracking/ExtendedKalmanFilter.cpp
   src/tracking/CentralizedTracker.cpp
   src/tracking/Decentralized.cpp
