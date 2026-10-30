@@ -11,6 +11,9 @@ struct TrackerParams {
   int delete_misses = 10;     // number of misses to delete a confirmed track
   int delete_misses_tentative = 2;  // number of misses to delete a tentative track 
   double init_vel_sigma = 100.0;
+  // Decentralised Params
+  double stale_after_s = 3.0;    // forget a peer's packet after this long
+  double track_gate_chi2 = 16.81;  // 6 dof, 99%: track-to-track association
 };
  
 }  // namespace sfsim

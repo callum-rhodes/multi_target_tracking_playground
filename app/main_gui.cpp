@@ -19,6 +19,7 @@
 
 #include "sim/Simulation.hpp"
 #include "tracking/CentralizedTracker.hpp"
+#include "tracking/Decentralized.hpp"
 #include "view/Viewport.hpp"
 #include "core/maths.hpp"
 
@@ -38,7 +39,7 @@ static double sensorYaw(const SensorConfig& c) {
   return std::atan2(b.y(), b.x());
 }
 
-static Simulation makeScenario(uint64_t seed) {
+static Simulation makeScenario(uint64_t seed, bool decentralised) {
   Simulation sim({.dt = 0.02, .seed = seed});
 
   auto addSensor = [&](SensorId id, MeasType type, Vec3 pos, double yaw, double rate) {
@@ -58,7 +59,12 @@ static Simulation makeScenario(uint64_t seed) {
   addTarget(sim, 3, Vec3(0, -1000, 0), Vec3(0, 40, 0), std::make_unique<CoordinatedTurn>(-0.03));
   addTarget(sim, 4, Vec3(-2500, 2000, 0), Vec3(60, -20, 0), std::make_unique<ConstantVelocity>(), 20.0, 90.0);
 
-  sim.setFusion(std::make_unique<CentralizedTracker>(sim.trackerParams()));  // tracker reads the sim-owned params by reference
+  if (decentralised) {
+    sim.setFusion(std::make_unique<DecentralizedFusion>(
+      sim.trackerParams(), sim.sensors().size(), sim.comms()));
+  } else {
+    sim.setFusion(std::make_unique<CentralizedTracker>(sim.trackerParams()));
+  }
   return sim;
 }
 
@@ -67,12 +73,14 @@ struct Blip { double t; Vec3 p; SensorId sensor; bool clutter; };
 
 struct App {
   int seed = 1;
-  Simulation sim = makeScenario(1);
+  bool decentralised = true;
+  Simulation sim = makeScenario(1, decentralised);
   Viewport vp;
   bool running = true;
   float speed = 1.0f;
   double acc = 0;
 
+  int viewingNode = -1;  // -1 = all local, otherwise show only this node's tracks
   static constexpr double kErrHistory = 300.0;  // seconds of error history kept
   static constexpr double kAssocGate  = 1000.0; // m: no confirmed track this close => target counts as untracked
   struct ErrSample { double t; double e; };     // e = NaN while the target is untracked
@@ -84,13 +92,14 @@ struct App {
        showTentative = false, showCov = true, showTrails = true, debugClutter = false;
   float measLife = 3.0f;
 
-  std::unordered_map<uint32_t, std::deque<Vec3>> truthTrail, trackTrail;
+  std::unordered_map<uint32_t, std::deque<Vec3>> truthTrail;
+  std::unordered_map<TrackKey, std::deque<Vec3>> trackTrail;
   std::deque<Blip> blips;
 
   App() { vp.pan = {0, 500}; vp.zoom = 0.08; }
 
   void reset() {
-    sim = makeScenario((uint64_t)seed);
+    sim = makeScenario((uint64_t)seed, decentralised);
     truthTrail.clear(); trackTrail.clear(); blips.clear(); errHist.clear();
     acc = 0;
   }
@@ -100,17 +109,20 @@ struct App {
     const Snapshot& s = sim.snapshot();
     constexpr size_t kTrail = 400;
 
-    std::unordered_set<uint32_t> liveTruth, liveTracks;
+    std::unordered_set<uint32_t> liveTruth;
+    std::unordered_set<TrackKey> liveTracks;
+
     for (auto& [id, st] : s.truth) {
       auto& q = truthTrail[id]; q.push_back(st.pos);
       if (q.size() > kTrail) q.pop_front();
       liveTruth.insert(id);
     }
     for (auto& tr : s.tracks) {
-      if (!tr.confirmed) continue;
-      auto& q = trackTrail[tr.id]; q.push_back(tr.x.head<3>());
+      if (tr.status == TrackStatus::Unconfirmed) continue;
+      const TrackKey key = trackKey(tr.tracker_id, tr.id);
+      auto& q = trackTrail[key]; q.push_back(tr.x.head<3>());
       if (q.size() > kTrail) q.pop_front();
-      liveTracks.insert(tr.id);
+      liveTracks.insert(key);
     }
     std::erase_if(truthTrail, [&](auto& kv) { return !liveTruth.count(kv.first); });
     std::erase_if(trackTrail, [&](auto& kv) { return !liveTracks.count(kv.first); });
@@ -128,7 +140,7 @@ struct App {
       double best = kAssocGate;
       bool found = false;
       for (auto& tr : s.tracks) {
-        if (!tr.confirmed) continue;
+        if (tr.status != TrackStatus::Unconfirmed) continue;
         const double d = (tr.x.head<3>() - st.pos).norm();
         if (d < best) { best = d; found = true; }
       }
@@ -208,6 +220,19 @@ static void drawCovariance(ImDrawList* dl, const Viewport& vp, const Track& t, I
   dl->AddPolyline(pts, 33, col, ImDrawFlags_None, 1.0f);
 }
 
+static void drawDashedLine(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col,
+                           float thickness = 1.5f, float dash = 6.0f, float gap = 4.0f) {
+  const float dx = b.x - a.x, dy = b.y - a.y;
+  const float len = std::sqrt(dx * dx + dy * dy);
+  if (len < 1e-3f) return;
+  if (len > 4000.0f) { dl->AddLine(a, b, col, thickness); return; }  // zoomed far in: don't emit thousands of dashes
+  const float ux = dx / len, uy = dy / len;
+  for (float s = 0.0f; s < len; s += dash + gap) {
+    const float e = std::min(s + dash, len);
+    dl->AddLine(ImVec2(a.x + ux * s, a.y + uy * s), ImVec2(a.x + ux * e, a.y + uy * e), col, thickness);
+  }
+}
+
 static void drawScene(App& app) {
   ImDrawList* dl = ImGui::GetBackgroundDrawList();
   const Viewport& vp = app.vp;
@@ -260,17 +285,50 @@ static void drawScene(App& app) {
   // Tracks
   if (app.showTracks) {
     for (auto& t : snap.tracks) {
-      if (!t.confirmed && !app.showTentative) continue;
-      const ImU32 col = t.confirmed ? IM_COL32(255, 200, 60, 255) : IM_COL32(150, 150, 150, 200);
+      if (app.viewingNode >= 0 && t.tracker_id != (uint32_t)app.viewingNode) continue;
+      if (t.status == TrackStatus::Unconfirmed && !app.showTentative) continue;
+      ImU32 col = IM_COL32(150, 150, 150, 200); // default = unconfirmed
+      switch (t.status) {
+        case TrackStatus::Confirmed: col = IM_COL32(255, 200, 60, 255); break;
+        case TrackStatus::Fused: col = IM_COL32(255, 100, 100, 255); break;
+      }
       const Vec3 pos = t.x.head<3>(), vel = t.x.tail<3>();
       const ImVec2 p = scr(vp, pos);
       const float r = (float)Viewport::altitudeToRadius(pos.z(), 7.0) + 3.0f;
       dl->AddCircle(p, r, col, 24, 1.5f);
       dl->AddLine(p, scr(vp, pos + Vec3(vel.x(), vel.y(), 0) * 5.0), col, 1.5f);  // 5 s lead
-      if (app.showCov && t.confirmed) drawCovariance(dl, vp, t, withAlpha(col, 120));
-      std::snprintf(buf, sizeof buf, "#%u", t.id);
+      if (app.showCov && t.status == TrackStatus::Confirmed) drawCovariance(dl, vp, t, withAlpha(col, 120));
+      std::snprintf(buf, sizeof buf, "#%u_%u", t.tracker_id, t.id);
       dl->AddText(ImVec2(p.x + r + 3, p.y + 2), col, buf);
     }
+  }
+  // Fusion links (decentralised only)
+  // Draw links between fused tracks and their sources.
+  if (app.decentralised){
+    if (app.viewingNode < 0) {   // "all" condition
+      std::unordered_map<TrackKey, const Track*> TrackByKey;
+      for (const auto& t : snap.tracks)
+        if (t.status != TrackStatus::Unconfirmed) TrackByKey[trackKey(t.tracker_id, t.id)] = &t;
+
+      for (const auto& t : snap.tracks) {
+        if (t.status != TrackStatus::Fused) continue;
+        const ImVec2 a = scr(vp, t.x.head<3>());
+        for (const auto& r : t.fused_from) {
+          const auto it = TrackByKey.find(trackKey(r.t_id, r.id));
+          if (it == TrackByKey.end()) continue;               // the source track isn't in the snapshot
+          const ImVec2 b = scr(vp, it->second->x.head<3>());
+          // Push the two directions apart a little so A->B and B->A don't overdraw each other
+          const float dx = b.x - a.x, dy = b.y - a.y, len = std::max(std::sqrt(dx * dx + dy * dy), 1e-3f);
+          const float off = (t.tracker_id < r.t_id) ? 1.5f : -1.5f;
+          const ImVec2 n(-dy / len * off, dx / len * off);
+          drawDashedLine(dl, ImVec2(a.x + n.x, a.y + n.y), ImVec2(b.x + n.x, b.y + n.y),
+                        withAlpha(kSensorCol[t.tracker_id % 4], 200));
+        }
+      }
+    } 
+    // else {
+    //   continue;  // TODO: show only the links for this node's tracks
+    // }
   }
 
   // Truth
@@ -337,6 +395,49 @@ static void drawControls(App& app) {
     ImGui::TextDisabled("Wheel = zoom, left/middle drag = pan, Space = pause");
   }
 
+  if (ImGui::CollapsingHeader("Fusion architecture", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Checkbox("decentralised (nodes exchange tracks)", &app.decentralised)) app.reset();
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Resets the sim with the same seed, so truth and measurements are\n"
+                        "identical in both modes: compare the error plot like-for-like.");
+
+    if (app.decentralised) {
+      ImGui::SeparatorText("Comms network");
+      CommConfig& cc = app.sim.comms().config();
+      TrackerParams& tp = app.sim.trackerParams();
+
+      float latency = (float) cc.latency_s;
+      if (ImGui::SliderFloat("latency (s)", &latency, 0.0f, 2.0f, "%.2f"))
+        cc.latency_s = latency;
+      float drop = (float)cc.drop_prob;
+      if (ImGui::SliderFloat("packet drop prob", &drop, 0.0f, 1.0f, "%.2f"))
+        cc.drop_prob = drop;
+      float period = (float)cc.period_s;
+      if (ImGui::SliderFloat("broadcast period (s)", &period, 0.05f, 5.0f, "%.2f",
+                            ImGuiSliderFlags_Logarithmic))
+        cc.period_s = period;
+      float stale = (float)tp.stale_after_s;
+      if (ImGui::SliderFloat("stale after (s)", &stale, 0.5f, 10.0f, "%.1f"))
+        tp.stale_after_s = stale;
+
+      ImGui::SeparatorText("Track-to-track association");
+
+      float gate = (float)tp.track_gate_chi2;
+      if (ImGui::SliderFloat("gate chi2 (6 dof)", &gate, 1.0f, 40.0f, "%.2f"))
+        tp.track_gate_chi2 = gate;
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("6 dof: 90%% = 10.64, 95%% = 12.59, 99%% = 16.81, 99.9%% = 22.46");
+
+      ImGui::SeparatorText("View");
+      ImGui::RadioButton("all local (unfused)", &app.viewingNode, -1);
+      for (size_t k = 0; k < app.sim.sensors().size(); ++k) {
+        ImGui::SameLine();
+        std::string lbl = "node " + std::to_string(k);
+        ImGui::RadioButton(lbl.c_str(), &app.viewingNode, (int)k);
+      }
+    }
+  }
+
   if (ImGui::CollapsingHeader("Sensors", ImGuiTreeNodeFlags_DefaultOpen)) {
     for (auto& s : app.sim.sensors()) {
       SensorConfig& c = s.config();
@@ -401,21 +502,22 @@ static void drawTelemetry(App& app) {
   ImGui::Begin("Telemetry");
 
   int confirmed = 0;
-  for (auto& t : snap.tracks) confirmed += t.confirmed;
+  for (auto& t : snap.tracks) t.status == TrackStatus::Confirmed ? ++confirmed : 0;
   ImGui::Text("truth: %zu   measurements (this tick): %zu   tracks: %d confirmed / %zu total",
               snap.truth.size(), snap.measurements.size(), confirmed, snap.tracks.size());
 
-  if (ImGui::BeginTable("tracks", 8, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY)) {
+  if (ImGui::BeginTable("tracks", 9, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY)) {
     ImGui::TableSetupScrollFreeze(0, 1);
-    for (const char* h : {"ID", "x (m)", "y (m)", "z (m)", "speed", "hits", "sigma pos", "err to truth"})
+    for (const char* h : {"Node ID", "Track ID", "x (m)", "y (m)", "z (m)", "speed", "hits", "sigma pos", "err to truth"})
       ImGui::TableSetupColumn(h);
     ImGui::TableHeadersRow();
     for (auto& t : snap.tracks) {
-      if (!t.confirmed) continue;
+      if (t.status == TrackStatus::Unconfirmed) continue;
       const Vec3 pos = t.x.head<3>();
       double err = 1e18;  // scoring only: nearest ground-truth distance
       for (auto& [id, st] : snap.truth) err = std::min(err, (st.pos - pos).norm());
       ImGui::TableNextRow();
+      ImGui::TableNextColumn(); ImGui::Text("#%u", t.tracker_id);
       ImGui::TableNextColumn(); ImGui::Text("#%u", t.id);
       ImGui::TableNextColumn(); ImGui::Text("%.0f", pos.x());
       ImGui::TableNextColumn(); ImGui::Text("%.0f", pos.y());

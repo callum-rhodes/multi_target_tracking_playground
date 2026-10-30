@@ -3,7 +3,7 @@
 
 namespace sfsim {
 
-void CentralizedTracker::step(double t, const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) {
+void CentralizedTracker::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) {
   const double dt = (last_t_ < 0) ? 0.0 : t - last_t_;
   last_t_ = t;
   for (auto& tr : pool_) if (dt > 0) tr.kf.predict(dt, p_.q_accel);
@@ -39,7 +39,7 @@ void CentralizedTracker::step(double t, const std::vector<Sensor>& sensors, cons
     if (usedSensors[bi] == 0) {  // first update this cycle: count the hit once
       pool_[bi].meta.hits++;
       pool_[bi].meta.misses = 0;
-      if (pool_[bi].meta.hits >= p_.confirm_hits) pool_[bi].meta.confirmed = true;
+      if (pool_[bi].meta.hits >= p_.confirm_hits) pool_[bi].meta.status = TrackStatus::Confirmed;
     }
     usedSensors[bi] |= sensorBit(ms[bj]);
     usedMeas[bj] = 1;
@@ -49,7 +49,7 @@ void CentralizedTracker::step(double t, const std::vector<Sensor>& sensors, cons
     if (usedSensors[i] == 0) pool_[i].meta.misses++;
 
   std::erase_if(pool_, [&](const Internal& tr) {
-      return tr.meta.confirmed
+      return tr.meta.status == TrackStatus::Confirmed
           ? tr.meta.misses >= p_.delete_misses
           : tr.meta.misses >= p_.delete_misses_tentative;
   });
@@ -78,6 +78,7 @@ void CentralizedTracker::step(double t, const std::vector<Sensor>& sensors, cons
     if (twin) continue;
     Internal n;
     n.meta.id = next_id_++;
+    n.meta.tracker_id = t_id;
     n.kf.P.setZero();
     // Initialize the new track's state and covariance from the Cartesian measurement
     if (ms[j].type == MeasType::Cartesian){

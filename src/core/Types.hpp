@@ -9,6 +9,7 @@ using Mat3 = Eigen::Matrix3d;
 using Mat6 = Eigen::Matrix<double, 6, 6>;
 using TargetId = uint32_t;
 using SensorId = uint32_t;
+using TrackerId = uint32_t;
 
 struct Pose {            // Generic pose in 3D space
     Vec3 position = Vec3::Zero();

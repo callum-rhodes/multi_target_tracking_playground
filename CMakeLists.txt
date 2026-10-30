@@ -27,7 +27,8 @@ add_library(sfsim_core
   src/tracking/ExtendedKalmanFilter.cpp
   src/tracking/CentralizedTracker.cpp
   src/tracking/Decentralized.cpp
-  src/sim/Simulation.cpp)
+  src/sim/Simulation.cpp
+  src/sim/CommNetwork.cpp)
 target_include_directories(sfsim_core PUBLIC src)
 target_link_libraries(sfsim_core PUBLIC Eigen3::Eigen)
 

@@ -19,7 +19,7 @@ void Simulation::step() {
   }
 
   // 4. fusion (centralized or decentralized, behind IFusion)
-  if (fusion_) fusion_->step(t_, sensors_, all);
+  if (fusion_) fusion_->step(t_, 0, sensors_, all);
 
   // 5. publish a snapshot for the view
   snap_.time = t_;

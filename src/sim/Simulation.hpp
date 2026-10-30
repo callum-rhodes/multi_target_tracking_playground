@@ -4,6 +4,7 @@
 #include <vector>
 #include "sensors/Sensor.hpp"
 #include "core/RateCounter.hpp"
+#include "sim/CommNetwork.hpp"
 #include "sim/Snapshot.hpp"
 #include "tracking/IFusion.hpp"
 #include "tracking/TrackerParams.hpp"
@@ -32,8 +33,8 @@ class Simulation {
   std::vector<Sensor>& sensors() { return sensors_; }
   // The tracker reads these by reference, so edits take effect on the next step.
   TrackerParams& trackerParams() { return *trackerParams_; }
-
-  // Simulation.hpp
+ 
+  CommNetwork& comms() { return *comms_; }
 
   double trackerRateHz() const { return tracker_rate_.hz(); }
 
@@ -48,6 +49,7 @@ class Simulation {
   // Heap-allocated so its address survives moving the Simulation (the tracker holds a reference).
   // Declared before fusion_ so it outlives the tracker on destruction.
   std::unique_ptr<TrackerParams> trackerParams_ = std::make_unique<TrackerParams>();
+  std::unique_ptr<CommNetwork> comms_ = std::make_unique<CommNetwork>(CommConfig{}, cfg_.seed + 1000);
   std::unique_ptr<IFusion> fusion_;
   Snapshot snap_;
 };

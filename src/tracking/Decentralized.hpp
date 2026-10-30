@@ -3,6 +3,9 @@
 #include <random>
 #include <vector>
 #include "tracking/IFusion.hpp"
+#include <unordered_map>
+#include "tracking/CentralizedTracker.hpp"
+#include "sim/CommNetwork.hpp"
 
 namespace sfsim {
 
@@ -10,34 +13,31 @@ namespace sfsim {
 void covarianceIntersection(const Vec6& xa, const Mat6& Pa, const Vec6& xb, const Mat6& Pb,
                             Vec6& x, Mat6& P);
 
-struct CommConfig {
-  double latency_s = 0.1;
-  double drop_prob = 0.05;
-  // TODO: bandwidth limit, topology (adjacency matrix)
+struct DecentralizedParams {
+  double track_gate_chi2 = 16.81;  // 6 dof, 99%: track-to-track association
+  double stale_after_s   = 3.0;    // forget a peer's packet after this long
 };
 
-struct Packet {
-  SensorId from = 0, to = 0;
-  double deliver_at = 0;
-  std::vector<Track> tracks;
-};
-
-// Simulated comms graph: send() now, deliver() returns what has arrived by t.
-class CommNetwork {
+class DecentralizedFusion : public IFusion {
  public:
-  CommNetwork(CommConfig c, uint64_t seed) : cfg_(c), rng_(seed) {}
-  void send(double t, Packet p);
-  std::vector<Packet> deliver(double t, SensorId to);
- private:
-  CommConfig cfg_;
-  std::mt19937_64 rng_;
-  std::deque<Packet> in_flight_;
-};
+  DecentralizedFusion(const TrackerParams& tp, size_t n_nodes, CommNetwork& net);
+  void step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
+            const std::vector<Measurement>& ms) override;
+  std::vector<Track> tracks() const override;
 
-// TODO: DecentralizedFusion : IFusion
-//   - one local CentralizedTracker per sensor (filter its own measurements only)
-//   - each tick: broadcast local tracks via CommNetwork
-//   - on receive: associate by gating, fuse with covarianceIntersection
-//   - tracks() returns one node's view (selectable in the GUI) or the union
+ private:
+  struct Node {
+    SensorId id;
+    CentralizedTracker local;
+    std::unordered_map<SensorId, Packet> latest;  // newest packet per peer
+    std::vector<Track> fused;                     // this node's view of the world
+    double next_tx = 0;
+  };
+  std::vector<Track> TrackFusion(const Node& n, double t) const;
+
+  const TrackerParams& tp_;
+  CommNetwork& net_;
+  std::vector<Node> nodes_;
+};
 
 }  // namespace sfsim

@@ -9,9 +9,9 @@ namespace sfsim {
 // Association is greedy nearest-neighbour for now; replace with GNN (Hungarian) / MHT.
 class CentralizedTracker : public IFusion {
  public:
-  explicit CentralizedTracker(const TrackerParams& p) : p_(p) {}
+explicit CentralizedTracker(const TrackerParams& p) : p_(p) {}
   CentralizedTracker(TrackerParams&&) = delete;  // would dangle immediately
-  void step(double t, const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) override;
+  void step(double t, TrackerId t_id, const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) override;
   std::vector<Track> tracks() const override;
 
  private:
