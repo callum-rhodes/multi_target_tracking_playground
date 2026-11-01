@@ -3,6 +3,7 @@
 namespace sfsim {
   
 void CommNetwork::send(double t, Packet p) {
+  if (!cfg_.enabled) return;                       // nothing goes on the wire
   std::uniform_real_distribution<double> u(0, 1);
   if (u(rng_) < cfg_.drop_prob) return;
   p.deliver_at = t + cfg_.latency_s;
@@ -10,6 +11,10 @@ void CommNetwork::send(double t, Packet p) {
 }
 
 std::vector<Packet> CommNetwork::deliver(double t, SensorId to) {
+  if (!cfg_.enabled) {                             // link is down: nothing arrives
+    in_flight_.clear();                            // and nothing lingers to arrive later
+    return {};
+  }
   std::vector<Packet> out;
   std::erase_if(in_flight_, [&](Packet& p) {
     if (p.to != to || p.deliver_at > t) return false;   // keep: not for this node, or not arrived yet

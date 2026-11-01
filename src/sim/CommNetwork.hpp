@@ -9,6 +9,7 @@
 namespace sfsim {
 
 struct CommConfig {
+  bool enabled = true;       // false = every link is down
   double latency_s = 0.1;
   double drop_prob = 0.05;
   double period_s = 0.5;    // each node broadcasts this often

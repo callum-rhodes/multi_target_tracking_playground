@@ -80,6 +80,7 @@ struct App {
   float speed = 1.0f;
   double acc = 0;
 
+  int followTruth = -1;  // -1 = free view, otherwise follow this target
   int viewingNode = -1;  // -1 = all local, otherwise show only this node's tracks
   static constexpr double kErrHistory = 300.0;  // seconds of error history kept
   static constexpr double kAssocGate  = 1000.0; // m: no confirmed track this close => target counts as untracked
@@ -140,7 +141,8 @@ struct App {
       double best = kAssocGate;
       bool found = false;
       for (auto& tr : s.tracks) {
-        if (tr.status != TrackStatus::Unconfirmed) continue;
+        if (tr.status == TrackStatus::Unconfirmed) continue;
+        if (viewingNode >= 0 && tr.tracker_id != (uint32_t)viewingNode) continue;
         const double d = (tr.x.head<3>() - st.pos).norm();
         if (d < best) { best = d; found = true; }
       }
@@ -163,6 +165,17 @@ struct App {
     vp.pan = {(lo.x() + hi.x()) / 2, (lo.y() + hi.y()) / 2};
     const double ext = std::max({hi.x() - lo.x(), hi.y() - lo.y(), 1000.0}) * 1.3;
     vp.zoom = std::min(vp.screen.x, vp.screen.y) / ext;
+  }
+
+  void updateFollow() {
+    if (followTruth < 0) return;
+    for (const auto& [id, st] : sim.snapshot().truth) {
+      if ((int)id == followTruth) {
+        vp.pan = {st.pos.x(), st.pos.y()};   // 2D only: z is dropped, like the rest of the view
+        return;
+      }
+    }
+    // Not found (not born yet, or dead): leave the camera where it is.
   }
 };
 
@@ -231,6 +244,36 @@ static void drawDashedLine(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col,
     const float e = std::min(s + dash, len);
     dl->AddLine(ImVec2(a.x + ux * s, a.y + uy * s), ImVec2(a.x + ux * e, a.y + uy * e), col, thickness);
   }
+}
+
+// Largest 1/2/5 x 10^k that is <= maxMetres.
+static double niceLength(double maxMetres) {
+  const double mag = std::pow(10.0, std::floor(std::log10(maxMetres)));
+  for (double m : {10.0, 5.0, 2.0, 1.0})
+    if (m * mag <= maxMetres) return m * mag;
+  return mag;  // not reached: maxMetres >= mag always holds
+}
+
+// Map-style scale bar: a horizontal line with a tick at each end and a label above it.
+// x_right / y_bar is the bar's right end; it grows leftwards so the label stays put.
+static void drawScaleBar(ImDrawList* dl, const Viewport& vp, float x_right, float y_bar) {
+  constexpr double kMaxBarPx = 150.0;
+  constexpr float kTick = 6.0f;
+  const ImU32 col = IM_COL32(255, 255, 255, 200);
+
+  const double metres = niceLength(kMaxBarPx / vp.zoom);
+  const float len = (float)(metres * vp.zoom);   // smooth: proportional to zoom between snaps
+  const float x0 = x_right - len;
+
+  dl->AddLine(ImVec2(x0, y_bar), ImVec2(x_right, y_bar), col, 1.5f);
+  dl->AddLine(ImVec2(x0, y_bar), ImVec2(x0, y_bar - kTick), col, 1.5f);
+  dl->AddLine(ImVec2(x_right, y_bar), ImVec2(x_right, y_bar - kTick), col, 1.5f);
+
+  char buf[32];
+  if (metres >= 1000.0) std::snprintf(buf, sizeof buf, "%g km", metres / 1000.0);
+  else                  std::snprintf(buf, sizeof buf, "%g m", metres);
+  const ImVec2 sz = ImGui::CalcTextSize(buf);
+  dl->AddText(ImVec2(x_right - sz.x, y_bar - kTick - sz.y - 2.0f), col, buf);
 }
 
 static void drawScene(App& app) {
@@ -350,13 +393,17 @@ static void drawScene(App& app) {
     std::snprintf(lines[1], sizeof lines[1], "%.0f FPS  (%.1f ms)", io.Framerate, 1000.0f / io.Framerate);
 
     const float line_h = ImGui::GetTextLineHeightWithSpacing();
-    float y = (float)vp.screen.y - 8.0f - line_h * 2.0f;
+    const float top = (float)vp.screen.y - 8.0f - line_h * 2.0f;
+    float y = top;
     for (auto& s : lines) {
       const ImVec2 sz = ImGui::CalcTextSize(s);
       dl->AddText(ImVec2((float)vp.screen.x - sz.x - 10.0f, y),
                   IM_COL32(255, 255, 255, 140), s);
       y += line_h;
     }
+
+    // Scale bar sits just above the counters, sharing their right margin
+    drawScaleBar(dl, vp, (float)vp.screen.x - 10.0f, top - 6.0f);
   }
 }
 
@@ -373,7 +420,7 @@ static void drawControls(App& app) {
   ImGui::SameLine();
   if (ImGui::Button("Reset")) app.reset();
   ImGui::SameLine();
-  if (ImGui::Button("Fit view")) app.fitView();
+  if (ImGui::Button("Fit view")) { app.followTruth = -1; app.fitView(); }
   ImGui::SliderFloat("speed", &app.speed, 0.1f, 20.0f, "%.1fx", ImGuiSliderFlags_Logarithmic);
   ImGui::InputInt("seed (on Reset)", &app.seed);
   ImGui::Text("sim time: %.1f s", app.sim.time());
@@ -392,6 +439,18 @@ static void drawControls(App& app) {
     float zoomLog = (float)std::log10(app.vp.zoom);
     if (ImGui::SliderFloat("zoom (log px/m)", &zoomLog, -3.0f, 1.0f))
       app.vp.zoom = std::pow(10.0, (double)zoomLog);
+    ImGui::SeparatorText("Camera follow");
+    ImGui::RadioButton("free", &app.followTruth, -1);
+    bool followedAlive = (app.followTruth < 0);
+    for (const auto& [id, st] : app.sim.snapshot().truth) {
+      ImGui::SameLine();
+      char lbl[16];
+      std::snprintf(lbl, sizeof lbl, "T%u", id);
+      ImGui::RadioButton(lbl, &app.followTruth, (int)id);
+      if ((int)id == app.followTruth) followedAlive = true;
+    }
+    if (!followedAlive)
+      ImGui::TextDisabled("T%d is not alive: camera holding position", app.followTruth);
     ImGui::TextDisabled("Wheel = zoom, left/middle drag = pan, Space = pause");
   }
 
@@ -406,6 +465,8 @@ static void drawControls(App& app) {
       CommConfig& cc = app.sim.comms().config();
       TrackerParams& tp = app.sim.trackerParams();
 
+      ImGui::Checkbox("comms enabled", &cc.enabled);
+      ImGui::BeginDisabled(!cc.enabled);
       float latency = (float) cc.latency_s;
       if (ImGui::SliderFloat("latency (s)", &latency, 0.0f, 2.0f, "%.2f"))
         cc.latency_s = latency;
@@ -419,6 +480,7 @@ static void drawControls(App& app) {
       float stale = (float)tp.stale_after_s;
       if (ImGui::SliderFloat("stale after (s)", &stale, 0.5f, 10.0f, "%.1f"))
         tp.stale_after_s = stale;
+      ImGui::EndDisabled();
 
       ImGui::SeparatorText("Track-to-track association");
 
@@ -660,7 +722,7 @@ int main(int, char**) {
     if (!io.WantCaptureMouse) {
       if (io.MouseWheel != 0.0f)
         app.vp.zoomAbout({io.MousePos.x, io.MousePos.y}, std::pow(1.15, (double)io.MouseWheel));
-      if (io.MouseDown[0] || io.MouseDown[2]) {
+      if ((io.MouseDown[0] || io.MouseDown[2]) && app.followTruth < 0) {
         app.vp.pan.x -= io.MouseDelta.x / app.vp.zoom;
         app.vp.pan.y += io.MouseDelta.y / app.vp.zoom;
       }
@@ -674,6 +736,7 @@ int main(int, char**) {
       const double dt = app.sim.cfg_.dt;  // matches SimConfig.dt in makeScenario
       while (app.acc >= dt && n < 100) { app.stepOnce(); app.acc -= dt; ++n; }
       if (n == 100) app.acc = 0;
+      app.updateFollow();
     }
 
     drawScene(app);
