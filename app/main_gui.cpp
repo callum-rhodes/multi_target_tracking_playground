@@ -12,69 +12,55 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
+#include <filesystem>
+#include <string>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
 #include "imgui_impl_sdl2.h"
 
 #include "sim/Simulation.hpp"
-#include "tracking/CentralizedTracker.hpp"
-#include "tracking/Decentralized.hpp"
+#include "sim/Scenario.hpp"
 #include "view/Viewport.hpp"
 #include "core/maths.hpp"
+
+#ifndef SFSIM_SCENARIO_DIR
+#define SFSIM_SCENARIO_DIR "scenarios"   // fallback: relative to the working directory
+#endif
 
 using namespace sfsim;
 
 // ---------------------------------------------------------------- scenario
-static void addTarget(Simulation& sim, TargetId id, Vec3 pos, Vec3 vel,
-                      std::unique_ptr<TrajectoryModel> m, double birth = 0, double death = 1e18) {
-  Target t;
-  t.id = id; t.state.pos = pos; t.state.vel = vel; t.model = std::move(m);
-  t.birth_time = birth; t.death_time = death;
-  sim.addTarget(std::move(t));
-}
-
 static double sensorYaw(const SensorConfig& c) {
   const Vec3 b = c.pose.orientation * Vec3::UnitX();
   return std::atan2(b.y(), b.x());
 }
 
-static Simulation makeScenario(uint64_t seed, bool decentralised) {
-  Simulation sim({.dt = 0.02, .seed = seed});
+static const std::string kDefaultScenarioPath = std::string(SFSIM_SCENARIO_DIR) + "/default.yaml";
 
-  auto addSensor = [&](SensorId id, MeasType type, Vec3 pos, double yaw, double rate) {
-    SensorConfig sc;
-    sc.id = id; sc.pose.position = pos;
-    sc.measType = type;
-    sc.pose.orientation = Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Vec3::UnitZ()));
-    sc.fov_half_angle = 0.95; sc.max_range = 7500; sc.update_rate_hz = rate; sc.sigma = Vec3(1, 0.01, 0.01);
-    sim.addSensor(sc);
-  };
-  addSensor(0, MeasType::RangeAzEl, Vec3(-3000, -2000, 30), 0.6, 5.0);
-  addSensor(1, MeasType::RangeAzEl, Vec3(3000, -2000, 30), M_PI - 0.6, 5.0);
-  addSensor(2, MeasType::RangeAzEl, Vec3(0, 3500, 30), -M_PI / 2, 5.0);
-
-  addTarget(sim, 1, Vec3(-1500, -500, 0), Vec3(70, 15, 0), std::make_unique<ConstantVelocity>());
-  addTarget(sim, 2, Vec3(1500, 1500, 0), Vec3(-60, -10, 0), std::make_unique<CoordinatedTurn>(0.04));
-  addTarget(sim, 3, Vec3(0, -1000, 0), Vec3(0, 40, 0), std::make_unique<CoordinatedTurn>(-0.03));
-  addTarget(sim, 4, Vec3(-2500, 2000, 0), Vec3(60, -20, 0), std::make_unique<ConstantVelocity>(), 20.0, 90.0);
-
-  if (decentralised) {
-    sim.setFusion(std::make_unique<DecentralizedFusion>(
-      sim.trackerParams(), sim.sensors().size(), sim.comms()));
-  } else {
-    sim.setFusion(std::make_unique<CentralizedTracker>(sim.trackerParams()));
+// Used to initialise App::scenario. Never throws: a broken default file shouldn't stop the app
+// from opening, since the user can fix the file and hit Reload.
+static ScenarioConfig loadStartupScenario() {
+  try {
+    return loadScenario(kDefaultScenarioPath);
+  } catch (const std::exception& e) {
+    std::fprintf(stderr, "Could not load default scenario: %s\n", e.what());
+    ScenarioConfig empty;
+    empty.name = "(default.yaml failed to load, see console)";
+    return empty;
   }
-  return sim;
 }
 
 // ---------------------------------------------------------------- app state
 struct Blip { double t; Vec3 p; SensorId sensor; bool clutter; };
 
 struct App {
-  int seed = 1;
-  bool decentralised = true;
-  Simulation sim = makeScenario(1, decentralised);
+  ScenarioConfig scenario = loadStartupScenario();
+  std::string scenarioPath = kDefaultScenarioPath;   // set even on failure, so Ctrl+R retries after you fix the file
+  int seed = (int)scenario.sim.seed;                 // still after `scenario`: initialised in declaration order
+  bool decentralised = scenario.decentralised;
+  Simulation sim = buildSimulation(scenario);
   Viewport vp;
   bool running = true;
   float speed = 1.0f;
@@ -100,9 +86,31 @@ struct App {
   App() { vp.pan = {0, 500}; vp.zoom = 0.08; }
 
   void reset() {
-    sim = makeScenario((uint64_t)seed, decentralised);
+    ScenarioConfig sc = scenario;               // the file is the template; the UI's seed / architecture override it
+    sc.sim.seed = (uint64_t)seed;
+    sc.decentralised = decentralised;
+    sim = buildSimulation(sc);
     truthTrail.clear(); trackTrail.clear(); blips.clear(); errHist.clear();
     acc = 0;
+  }
+
+  // Returns "" on success, else an error message. On failure the running sim is untouched,
+  // because loadScenario() either returns a fully validated config or throws.
+  std::string loadFile(const std::string& path) {
+    try {
+      ScenarioConfig sc = loadScenario(path);
+      scenario = std::move(sc);
+      scenarioPath = path;
+      seed = (int)scenario.sim.seed;
+      decentralised = scenario.decentralised;
+      followTruth = -1;                         // target / node selections may not exist in the new scenario
+      viewingNode = -1;
+      reset();
+      fitView();
+      return {};
+    } catch (const std::exception& e) {
+      return e.what();
+    }
   }
 
   void stepOnce() {
@@ -160,7 +168,11 @@ struct App {
       hi.x() = std::max(hi.x(), p.x()); hi.y() = std::max(hi.y(), p.y());
     };
     for (auto& s : sim.sensors()) grow(s.config().pose.position);
-    for (auto& [id, st] : sim.snapshot().truth) grow(st.pos);
+    if (sim.snapshot().truth.empty()){ // no targets yet: use the scenario's initial positions
+      for (auto& t : scenario.targets) grow(t.pos);
+    } else { // targets exist: use the truth positions
+      for (auto& [id, st] : sim.snapshot().truth) grow(st.pos);
+    }
     if (lo.x() > hi.x()) return;
     vp.pan = {(lo.x() + hi.x()) / 2, (lo.y() + hi.y()) / 2};
     const double ext = std::max({hi.x() - lo.x(), hi.y() - lo.y(), 1000.0}) * 1.3;
@@ -404,6 +416,89 @@ static void drawScene(App& app) {
 
     // Scale bar sits just above the counters, sharing their right margin
     drawScaleBar(dl, vp, (float)vp.screen.x - 10.0f, top - 6.0f);
+  }
+}
+
+// ---------------------------------------------------------------- scenario browser
+struct ScenarioBrowser {
+  std::filesystem::path dir = SFSIM_SCENARIO_DIR;
+  std::vector<std::filesystem::path> files;
+  char pathBuf[512] = {};
+  std::string error;
+
+  void refresh() {
+    files.clear();
+    std::error_code ec;   // non-throwing overloads: a missing folder just yields an empty list
+    for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+      const auto ext = e.path().extension();
+      if (e.is_regular_file(ec) && (ext == ".yaml" || ext == ".yml")) files.push_back(e.path());
+    }
+    std::sort(files.begin(), files.end());
+  }
+};
+
+static void drawScenarioUi(App& app, ScenarioBrowser& br, bool& quit) {
+  const ImGuiIO& io = ImGui::GetIO();
+  bool wantOpen = false;
+
+  auto reload = [&] {
+    br.error = app.loadFile(app.scenarioPath);
+    if (!br.error.empty()) wantOpen = true;     // show the error in the dialog
+  };
+
+  if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("File")) {
+      if (ImGui::MenuItem("Open scenario...", "Ctrl+O")) wantOpen = true;
+      if (ImGui::MenuItem("Reload", "Ctrl+R", false, !app.scenarioPath.empty())) reload();
+      ImGui::Separator();
+      if (ImGui::MenuItem("Quit")) quit = true;
+      ImGui::EndMenu();
+    }
+    ImGui::TextDisabled("  scenario: %s", app.scenario.name.c_str());
+    ImGui::EndMainMenuBar();
+  }
+
+  // MenuItem's shortcut text is display-only, so the keys are handled here.
+  if (!io.WantTextInput && io.KeyCtrl) {
+    if (ImGui::IsKeyPressed(ImGuiKey_O, false)) wantOpen = true;
+    if (ImGui::IsKeyPressed(ImGuiKey_R, false) && !app.scenarioPath.empty()) reload();
+  }
+
+  // OpenPopup must run in the same ImGui ID scope as BeginPopupModal. Inside the menu bar
+  // window it would be in a different scope, so the menu only sets a flag and we open it here.
+  if (wantOpen) { br.refresh(); ImGui::OpenPopup("Open scenario"); }
+
+  if (ImGui::BeginPopupModal("Open scenario", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextDisabled("%s", br.dir.string().c_str());
+    bool load = false;
+    if (ImGui::BeginListBox("##files", ImVec2(480, 150))) {
+      for (const auto& f : br.files) {
+        const std::string full = f.string();
+        if (ImGui::Selectable(f.filename().string().c_str(), full == br.pathBuf,
+                              ImGuiSelectableFlags_AllowDoubleClick)) {
+          std::snprintf(br.pathBuf, sizeof br.pathBuf, "%s", full.c_str());
+          if (ImGui::IsMouseDoubleClicked(0)) load = true;
+        }
+      }
+      ImGui::EndListBox();
+    }
+    ImGui::SetNextItemWidth(480);
+    if (ImGui::InputText("##path", br.pathBuf, sizeof br.pathBuf, ImGuiInputTextFlags_EnterReturnsTrue)) load = true;
+    if (ImGui::Button("Open")) load = true;
+    ImGui::SameLine();
+    const bool cancel = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape);
+
+    if (load) {
+      br.error = app.loadFile(br.pathBuf);
+      if (br.error.empty()) ImGui::CloseCurrentPopup();   // on failure stay open so you can fix the file and retry
+    }
+    if (!br.error.empty()) {
+      ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 480.0f);
+      ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "%s", br.error.c_str());
+      ImGui::PopTextWrapPos();
+    }
+    if (cancel) { br.error.clear(); ImGui::CloseCurrentPopup(); }
+    ImGui::EndPopup();
   }
 }
 
@@ -664,7 +759,7 @@ static void drawErrorPlot(App& app) {
 }
 
 // ---------------------------------------------------------------- main
-int main(int, char**) {
+int main(int argc, char** argv) {
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
     std::fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return 1;
@@ -699,8 +794,13 @@ int main(int, char**) {
   ImGui_ImplOpenGL3_Init(glsl);
 
   App app;
+  if (argc > 1) {
+    const std::string err = app.loadFile(argv[1]);
+    if (!err.empty()) std::fprintf(stderr, "%s\n", err.c_str());
+  }
   app.fitView();
   bool quit = false;
+  ScenarioBrowser browser;
 
   while (!quit) {
     SDL_Event e;
@@ -714,6 +814,7 @@ int main(int, char**) {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
+    drawScenarioUi(app, browser, quit);            // new; must precede the dockspace
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                 ImGuiDockNodeFlags_PassthruCentralNode);
     app.vp.screen = {io.DisplaySize.x, io.DisplaySize.y};

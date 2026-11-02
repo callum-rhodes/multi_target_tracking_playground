@@ -1,0 +1,27 @@
+name: "Default: 3 range/az/el sensors, 4 targets"
+sim: {dt: 0.02, seed: 1}
+fusion: decentralised            # or: centralised  (the GUI checkbox can still override at runtime)
+
+comms: {enabled: true, latency_s: 0.1, drop_prob: 0.05, period_s: 0.5}
+
+tracker:
+  q_accel: 80.0
+  gate_chi2: 11.34
+  confirm_hits: 25
+  delete_misses: 25
+  delete_misses_tentative: 4
+  init_vel_sigma: 100.0
+
+# Sensor ids are assigned from list order (S0, S1, S2).
+# yaw is measured about +z (0 deg = +x). Positive pitch tips the boresight DOWN.
+sensors:
+  - {type: range_az_el, position: [-3000, -2000, 30], yaw_deg: 34.377,  fov_half_angle_deg: 54.43, max_range: 7500, update_rate_hz: 5, sigma: [1, 0.573, 0.573]}
+  - {type: range_az_el, position: [ 3000, -2000, 30], yaw_deg: 145.623, fov_half_angle_deg: 54.43, max_range: 7500, update_rate_hz: 5, sigma: [1, 0.573, 0.573]}
+  - {type: range_az_el, position: [    0,  3500, 30], yaw_deg: -90,    fov_half_angle_deg: 54.43, max_range: 7500, update_rate_hz: 5, sigma: [1, 0.573, 0.573]}
+
+# Positive turn rate = counter-clockwise seen from above.
+targets:
+  - {id: 1, position: [-1500,  -500, 0], velocity: [70, 15, 0]}
+  - {id: 2, position: [ 1500,  1500, 0], velocity: [-60, -10, 0], trajectory: {type: coordinated_turn, turn_rate_deg_s: 2.292}}
+  - {id: 3, position: [    0, -1000, 0], velocity: [0, 40, 0],    trajectory: {type: coordinated_turn, turn_rate_deg_s: -1.719}}
+  - {id: 4, position: [-2500,  2000, 0], velocity: [60, -20, 0],  birth_time: 20, death_time: 90}

@@ -19,6 +19,25 @@ if(NOT Eigen3_FOUND)
   FetchContent_MakeAvailable(eigen)
 endif()
 
+# --- yaml-cpp: scenario files ---
+find_package(yaml-cpp QUIET)
+if(NOT yaml-cpp_FOUND)
+  FetchContent_Declare(yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+    GIT_SHALLOW TRUE)
+  set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+  set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(yaml-cpp)
+endif()
+# The imported target's name differs between yaml-cpp versions.
+if(TARGET yaml-cpp::yaml-cpp)
+  set(SFSIM_YAML_TARGET yaml-cpp::yaml-cpp)
+else()
+  set(SFSIM_YAML_TARGET yaml-cpp)
+endif()
+
 # Layers A-C: no rendering dependencies, so it stays testable and headless-capable
 add_library(sfsim_core
   src/core/Target.cpp
@@ -28,9 +47,12 @@ add_library(sfsim_core
   src/tracking/CentralizedTracker.cpp
   src/tracking/Decentralized.cpp
   src/sim/Simulation.cpp
-  src/sim/CommNetwork.cpp)
+  src/sim/CommNetwork.cpp
+  src/sim/Scenario.cpp
+  src/sim/ScenarioLoader.cpp)
 target_include_directories(sfsim_core PUBLIC src)
-target_link_libraries(sfsim_core PUBLIC Eigen3::Eigen)
+target_compile_definitions(sfsim_core PUBLIC SFSIM_SCENARIO_DIR="${CMAKE_SOURCE_DIR}/scenarios")
+target_link_libraries(sfsim_core PUBLIC Eigen3::Eigen PRIVATE ${SFSIM_YAML_TARGET})
 
 add_executable(sfsim_headless app/main_headless.cpp)
 target_link_libraries(sfsim_headless PRIVATE sfsim_core)

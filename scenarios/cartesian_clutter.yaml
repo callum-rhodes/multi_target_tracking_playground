@@ -1,0 +1,9 @@
+name: "Cartesian pair, heavy clutter"
+sim: {dt: 0.05, seed: 7}
+fusion: centralised
+sensors:
+  - {type: cartesian, position: [-2000, 0, 0], yaw_deg: 0,   fov_half_angle_deg: 60, max_range: 6000, update_rate_hz: 5, sigma: [8, 8, 8], p_detect: 0.85, clutter_rate: 15}
+  - {type: cartesian, position: [ 2000, 0, 0], yaw_deg: 180, fov_half_angle_deg: 60, max_range: 6000, update_rate_hz: 5, sigma: [8, 8, 8], p_detect: 0.85, clutter_rate: 15}
+targets:
+  - {id: 1, position: [-1500,  200, 500], velocity: [80, 0, 0]}
+  - {id: 2, position: [ 1500, -300, 800], velocity: [-70, 10, 0], trajectory: {type: coordinated_turn, turn_rate_deg_s: 3}}
