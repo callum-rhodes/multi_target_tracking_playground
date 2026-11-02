@@ -80,22 +80,16 @@ void CentralizedTracker::step(double t, TrackerId t_id, const std::vector<Sensor
     n.meta.id = next_id_++;
     n.meta.tracker_id = t_id;
     n.kf.P.setZero();
-    // Initialize the new track's state and covariance from the Cartesian measurement
-    if (ms[j].type == MeasType::Cartesian){
-      n.kf.x.head<3>() = ms[j].z;
-      n.kf.P.topLeftCorner<3, 3>() = ms[j].R;
-    } else {
-      // Initialize the new track's state and covariance from the RangeAzEl measurement
-      const Vec3 z_world = s.model().Meas2World(ms[j].pose.position, ms[j].pose.orientation, ms[j].z);
-      n.kf.x.head<3>() = z_world;
 
-      Mat3 J = s.model().Meas2WorldJacobian(ms[j].pose.position, ms[j].pose.orientation, ms[j].z);
-      Mat3 Rpos = J * ms[j].R * J.transpose();
+    // Initialize the new track's state and covariance
+    const Vec3 z_world = s.model().Meas2World(ms[j].pose.position, ms[j].pose.orientation, ms[j].z);
+    n.kf.x.head<3>() = z_world;
 
-      n.kf.P.topLeftCorner<3, 3>() = Rpos;
-    }
-
+    Mat3 J = s.model().Meas2WorldJacobian(ms[j].pose.position, ms[j].pose.orientation, ms[j].z);
+    Mat3 Rpos = J * ms[j].R * J.transpose();
+    n.kf.P.topLeftCorner<3, 3>() = Rpos;
     n.kf.P.bottomRightCorner<3, 3>() = Mat3::Identity() * p_.init_vel_sigma * p_.init_vel_sigma;
+    
     n.meta.hits = 1;
     pool_.push_back(n);
   }
