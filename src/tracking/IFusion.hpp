@@ -27,6 +27,17 @@ struct Track {
   std::vector<TrackFusionRef> fused_from;  // which tracks were fused to make this one
 };
 
+// Track information for a prior track that is not locally fused but may inform the local tracker for new spawn candidates.
+struct trackPrior {
+  TrackFusionRef source;       // (neighbour node, neighbour's local track id): the cue's identity
+  Vec6 x = Vec6::Zero();       // prior state estimate ...
+  Mat6 P = Mat6::Identity();   // ... and covariance, both valid at `stamp`
+  double stamp = 0;            // time of the prior estimate generation; also the freshness clock
+  int hits = 0;                // own-sensor hits (consecutive: see prior_reset_misses)
+  int misses = 0;              // consecutive scans without a hit
+  bool promoted = false;       // already turned into a local track
+};
+
 // The seam between layers B and C. Centralized and decentralized
 // architectures both implement this, so the sim loop and GUI never care which is active.
 class IFusion {

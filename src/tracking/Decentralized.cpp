@@ -1,5 +1,7 @@
 #include "tracking/Decentralized.hpp"
 
+#include <algorithm>
+
 namespace sfsim {
 
 void covarianceIntersection(const Vec6& xa, const Mat6& Pa, const Vec6& xb, const Mat6& Pb,
@@ -18,22 +20,68 @@ void covarianceIntersection(const Vec6& xa, const Mat6& Pa, const Vec6& xb, cons
   }
 }
 
+namespace { // Private helpers
+
+// Track-to-track Mahalanobis distance. Treats the errors as independent (they aren't
+// exactly), which is fine for gating: it only decides *whether* to fuse.
+double t2tDist(const Track& a, const Track& b) {
+  const Vec6 d = a.x - b.x;
+  return d.dot((a.P + b.P).ldlt().solve(d));
+}
+
+// Bring an estimate forward by dt with the same constant-velocity model the filters use.
+void ageEstimate(Vec6& x, Mat6& P, double dt, double q_accel) {
+  EKF f;
+  f.x = x;
+  f.P = P;
+  f.predict(std::max(0.0, dt), q_accel);
+  x = f.x;
+  P = f.P;
+}
+
+// A candidate's estimate, aged to `now`, in Track form so t2tDist can compare it.
+Track agedTrack(const trackPrior& p, double now, double q_accel) {
+  Track tr;
+  tr.x = p.x;
+  tr.P = p.P;
+  ageEstimate(tr.x, tr.P, now - p.stamp, q_accel);
+  return tr;
+}
+
+bool explainedBy(const Track& a, const std::vector<Track>& others, double gate) {
+  return std::any_of(others.begin(), others.end(),
+                     [&](const Track& b) { return t2tDist(a, b) < gate; });
+}
+
+trackPrior* findPriors(std::vector<trackPrior>& v, TrackerId from, uint32_t id) {
+  for (auto& p : v)
+    if (p.source.t_id == from && p.source.id == id) return &p;
+  return nullptr;
+}
+
+}  // namespace
+
 DecentralizedFusion::DecentralizedFusion(const TrackerParams& tp, size_t n, CommNetwork& net)
     : tp_(tp), net_(net) {
   nodes_.reserve(n);
   for (size_t k = 0; k < n; ++k)
     nodes_.push_back(Node{static_cast<SensorId>(k),
-                          CentralizedTracker(tp), {}, {}, 0.0});
+                          CentralizedTracker(tp), {}, {}, {}, 0.0});
 }
 
 void DecentralizedFusion::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
                                const std::vector<Measurement>& ms) {
-  // 1. Local filtering: each node sees only its own sensor's measurements.
-  //    Every node is stepped every tick (even with empty input) so it coasts.
+  // Per-node measurement lists. Each list is fed through the node's phases and shrinks as
+  // phases claim measurements, so what is left at the end is exactly what spawns tentatives.
   std::vector<std::vector<Measurement>> byNode(nodes_.size());
   for (const auto& m : ms) byNode.at(m.sensor).push_back(m);
-  for (size_t k = 0; k < nodes_.size(); ++k)
-    nodes_[k].local.step(t, nodes_[k].id, sensors, byNode[k]);
+
+  // 1. Local filtering, first half. Every node is stepped every tick (even with empty input)
+  //    so it coasts. The "was there a scan?" decision is made here, from the original input.
+  for (size_t k = 0; k < nodes_.size(); ++k) {
+    nodes_[k].local.beginScan(t, nodes_[k].id, sensors[k].scannedAt(t));
+    byNode[k] = nodes_[k].local.associateConfirmed(sensors, std::move(byNode[k]));
+  }
 
   // 2. Broadcast confirmed local tracks on a slower schedule than the sim tick.
   for (auto& n : nodes_) {
@@ -56,15 +104,72 @@ void DecentralizedFusion::step(double t, TrackerId t_id, const std::vector<Senso
       if (p.stamp >= slot.stamp) slot = std::move(p);
     }
 
-  // 4. Rebuild each node's fused view.
+  // 4. Local filtering, second half, now that this tick's packets are in. The order is the
+  //    priority order: priors (informed by a neighbour, tight gate) before existing
+  //    tentatives (vague, wide gate), and spawning only from what nobody claimed.
+  for (size_t k = 0; k < nodes_.size(); ++k) {
+    Node& n = nodes_[k];
+    updatePriors(n, t);
+    // byNode measurements eaten by each function, so the remainder is passed to the next phase.
+    byNode[k] = n.local.associatePriors(sensors, std::move(byNode[k]), n.priors);
+    byNode[k] = n.local.associateTentative(sensors, std::move(byNode[k]));
+    n.local.spawnTentatives(sensors, byNode[k]);
+    n.local.endScan();
+  }
+
+  // 5. Rebuild each node's fused view.
   for (auto& n : nodes_) n.fused = TrackFusion(n, t);
 }
 
-// Track-to-track Mahalanobis distance. Treats the errors as independent (they aren't
-// exactly), which is fine for gating: it only decides *whether* to fuse.
-static double t2tDist(const Track& a, const Track& b) {
-  const Vec6 d = a.x - b.x;
-  return d.dot((a.P + b.P).ldlt().solve(d));
+void DecentralizedFusion::updatePriors(Node& n, double t) const {
+  // What this node already tracks itself, after this tick's association against confirmed tracks.
+  // (Local tentatives are deliberately left out: if one covers the same target as a candidate,
+  // the candidate is tried first, so it takes the measurements and the tentative starves.)
+  std::vector<Track> mine;
+  for (auto& tr : n.local.tracks()) if (tr.status == TrackStatus::Confirmed) mine.push_back(tr);
+
+  // 1. Refresh the priors we hold from the newest packets. States update; counters do not.
+  for (const auto& [from, pkt] : n.latest)
+    for (const Track& trIn : pkt.tracks)
+      if (trackPrior* p = findPriors(n.priors, from, trIn.id); p && pkt.stamp > p->stamp) {
+        p->x = trIn.x;
+        p->P = trIn.P;
+        p->stamp = pkt.stamp;
+      }
+
+  // 2. Forget priors whose source went stale (whatever their hit count), and unpromoted
+  //    ones this node now tracks itself. A promoted candidate stays as a marker until stale so
+  //    the same neighbour track cannot be re-adopted as a second candidate.
+  std::erase_if(n.priors, [&](const trackPrior& p) {
+    if (t - p.stamp > tp_.stale_after_s) return true;
+    return !p.promoted && explainedBy(agedTrack(p, t, tp_.q_accel), mine, tp_.track_gate_chi2);
+  });
+
+  // 3. Create priors from fresh remote tracks that nothing we hold explains: not one of our
+  //    own confirmed tracks (track-to-track check), and not a candidate we already created for
+  //    the same target from a different neighbour.
+  for (const auto& [from, pkt] : n.latest) {
+    if (t - pkt.stamp > tp_.stale_after_s) continue;
+    for (const Track& trIn : pkt.tracks) {
+      if (findPriors(n.priors, from, trIn.id)) continue;   // already known (refreshed above)
+
+      Track aged = trIn;
+      ageEstimate(aged.x, aged.P, t - pkt.stamp, tp_.q_accel);
+      if (explainedBy(aged, mine, tp_.track_gate_chi2)) continue;
+
+      bool duplicate = false;
+      for (const trackPrior& p : n.priors)
+        if (t2tDist(aged, agedTrack(p, t, tp_.q_accel)) < tp_.track_gate_chi2) { duplicate = true; break; }
+      if (duplicate) continue;
+
+      trackPrior p;
+      p.source = {from, trIn.id};
+      p.x = trIn.x;
+      p.P = trIn.P;
+      p.stamp = pkt.stamp;
+      n.priors.push_back(p);
+    }
+  }
 }
 
 std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) const {
@@ -76,11 +181,7 @@ std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) 
 
     // Bring the peer's tracks forward to "now" (latency + age). Reuse EKF::predict.
     std::vector<Track> remote = pkt.tracks;
-    for (auto& r : remote) {
-      EKF f; f.x = r.x; f.P = r.P;
-      f.predict(t - pkt.stamp, tp_.q_accel);
-      r.x = f.x; r.P = f.P;
-    }
+    for (auto& trIn : remote) ageEstimate(trIn.x, trIn.P, t - pkt.stamp, tp_.q_accel);
 
     // Greedy NN association: sort all gated pairs by distance, accept in order.
     struct Cand { double d; size_t i, j; };
@@ -101,14 +202,6 @@ std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) 
       covarianceIntersection(fusedTracks[c.i].x, fusedTracks[c.i].P, remote[c.j].x, remote[c.j].P, x, P);
       fusedTracks[c.i].x = x; fusedTracks[c.i].P = P; fusedTracks[c.i].status = TrackStatus::Fused;
     }
-    // Unmatched remote tracks = targets this node can't see itself. Adopt them.
-    // for (size_t j = 0; j < remote.size(); ++j)
-    //   if (!usedR[j]) {
-    //     remote[j].fused_from.push_back({from, remote[j].id});      // adopted: its only source is the peer's track
-    //     remote[j].status = TrackStatus::Confirmed;                 // adopted tracks are always confirmed
-    //     remote[j].tracker_id = self.id;                            // restamp AFTER recording the source
-    //     fusedTracks.push_back(remote[j]);
-    //   }
   }
   return fusedTracks;
 }

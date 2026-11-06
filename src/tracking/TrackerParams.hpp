@@ -14,6 +14,9 @@ struct TrackerParams {
   // Decentralised Params
   double stale_after_s = 3.0;    // forget a peer's packet after this long
   double track_gate_chi2 = 16.81;  // 6 dof, 99%: track-to-track association
+  // Candidates (a neighbour's confirmed track used as a cue for this node's own sensor)
+  int prior_confirm_hits = 5;  // consecutive own-sensor hits before a candidate is promoted to a confirmed track
+  int prior_reset_misses = 5;  // this many consecutive misses reset the hit counter (the candidate is NOT deleted)
 };
  
 }  // namespace sfsim

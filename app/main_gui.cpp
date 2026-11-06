@@ -600,7 +600,7 @@ static void drawControls(App& app) {
       SensorConfig& c = s.config();
       char label[32];
       std::snprintf(label, sizeof label, "Sensor %u", c.id);
-      if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_DefaultOpen)) continue;
+      if (!ImGui::TreeNodeEx(label)) continue;
       ImGui::PushID((int)c.id);
 
       ImGui::Checkbox("enabled", &c.enabled);
@@ -646,6 +646,8 @@ static void drawControls(App& app) {
     ImGui::SliderInt("delete misses", &p.delete_misses, 1, 200);
     ImGui::SliderInt("delete misses (tentative)", &p.delete_misses_tentative, 1, 200);
     sliderD("init velocity sigma (m/s)", &p.init_vel_sigma, 1.0, 500.0, "%.1f", kLog);
+    ImGui::SliderInt("prior confirm hits", &p.prior_confirm_hits, 1, 50);
+    ImGui::SliderInt("prior reset misses", &p.prior_reset_misses, 1, 50);
     if (ImGui::Button("Defaults")) p = TrackerParams{};
   }
   ImGui::PopItemWidth();

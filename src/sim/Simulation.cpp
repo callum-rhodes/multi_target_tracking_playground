@@ -15,7 +15,7 @@ void Simulation::step() {
     if (!s.config().enabled) continue;
     auto m = s.observe(t_, targets_, rng_);
     all.insert(all.end(), m.begin(), m.end());
-    s.markScanned();
+    s.markScanned(t_);
   }
 
   // 4. fusion (centralized or decentralized, behind IFusion)

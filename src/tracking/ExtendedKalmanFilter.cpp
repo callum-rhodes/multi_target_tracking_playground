@@ -6,7 +6,7 @@
 
 namespace sfsim {
 
-namespace {
+namespace { // Private helpers
 
 using Mat36 = Eigen::Matrix<double, 3, 6>;
 

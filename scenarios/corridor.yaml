@@ -15,11 +15,11 @@ tracker:
 # Sensor ids are assigned from list order (S0, S1, S2).
 # yaw is measured about +z (0 deg = +x). Positive pitch tips the boresight DOWN.
 sensors:
-  - {type: range_az_el, position: [-1000, -500, 20],yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 2.0, p_detect: 0.95}
-  - {type: range_az_el, position: [-750, 500, 20],  yaw_deg: -90.000,   fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 2.0, p_detect: 0.95}
-  - {type: range_az_el, position: [-500, -500, 20], yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 2.0, p_detect: 0.95}
-  - {type: range_az_el, position: [-250, 500, 20],  yaw_deg: -90.000,   fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 2.0, p_detect: 0.95}
-  - {type: range_az_el, position: [0, -500, 20],    yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 2.0, p_detect: 0.95}
+  - {type: range_az_el, position: [-1000, -500, 20],yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 0.0, p_detect: 0.95}
+  - {type: range_az_el, position: [-750, 500, 20],  yaw_deg: -90.000,   fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 0.0, p_detect: 0.95}
+  - {type: range_az_el, position: [-500, -500, 20], yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 0.0, p_detect: 0.95}
+  - {type: range_az_el, position: [-250, 500, 20],  yaw_deg: -90.000,   fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 0.0, p_detect: 0.95}
+  - {type: range_az_el, position: [0, -500, 20],    yaw_deg: 90.000,    fov_half_angle_deg: 30.00, max_range: 750, update_rate_hz: 5, sigma: [1, 0.573, 0.573], clutter_rate: 0.0, p_detect: 0.95}
 
 # Positive turn rate = counter-clockwise seen from above.
 targets:

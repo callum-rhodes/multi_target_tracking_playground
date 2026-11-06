@@ -189,6 +189,8 @@ ScenarioConfig parse(const YAML::Node& root) {
     p.init_vel_sigma = opt(t, "init_vel_sigma", p.init_vel_sigma);
     p.stale_after_s = opt(t, "stale_after_s", p.stale_after_s);
     p.track_gate_chi2 = opt(t, "track_gate_chi2", p.track_gate_chi2);
+    p.prior_confirm_hits = opt(t, "prior_confirm_hits", p.prior_confirm_hits);
+    p.prior_reset_misses = opt(t, "prior_reset_misses", p.prior_reset_misses);
   }
 
   parseList(need(root, "sensors"), "sensors", sc.sensors, parseSensor);

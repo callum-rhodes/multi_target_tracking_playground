@@ -26,14 +26,19 @@ class DecentralizedFusion : public IFusion {
   std::vector<Track> tracks() const override;
 
  private:
-  struct Node {
+  struct Node { //TODO: Add the ability to have multiple sensors per node
     SensorId id;
     CentralizedTracker local;
     std::unordered_map<SensorId, Packet> latest;  // newest packet per peer
     std::vector<Track> fused;                     // this node's view of the world
+    std::vector<trackPrior> priors;            // neighbours' confirmed tracks waiting for this node's own evidence
     double next_tx = 0;
   };
   std::vector<Track> TrackFusion(const Node& n, double t) const;
+
+  // Refresh priors from the newest packets, drop stale / redundant ones, and create new
+  // ones from remote tracks that nothing this node already holds explains.
+  void updatePriors(Node& n, double t) const;
 
   const TrackerParams& tp_;
   CommNetwork& net_;
