@@ -18,10 +18,10 @@ namespace sfsim {
 // "used" flag. The per-track "was I updated this scan?" state lives inside the track pool
 // (reset in beginScan, read in endScan). step() (the IFusion entry point) simply runs the
 // centralised order: confirmed, tentative, spawn.
-class CentralizedTracker : public IFusion {
+class CentralisedTracker : public IFusion {
  public:
-  explicit CentralizedTracker(const TrackerParams& p) : params_(p) {}
-  CentralizedTracker(TrackerParams&&) = delete;  // would dangle immediately
+  explicit CentralisedTracker(const TrackerParams& p) : params_(p) {}
+  CentralisedTracker(TrackerParams&&) = delete;  // would dangle immediately
   void step(double t, TrackerId t_id, const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) override;
   std::vector<Track> tracks() const override;
 

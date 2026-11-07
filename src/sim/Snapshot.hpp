@@ -13,6 +13,7 @@ struct Snapshot {
   std::vector<std::pair<TargetId, TargetState>> truth;
   std::vector<Measurement> measurements;  // this tick only
   std::vector<Track> tracks;
+  std::vector<Track> unfusedTracks;  // pre-fusion confirmed tracks (decentralised only)
 };
 
 }  // namespace sfsim

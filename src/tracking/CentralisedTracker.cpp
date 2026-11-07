@@ -1,4 +1,4 @@
-#include "tracking/CentralizedTracker.hpp"
+#include "tracking/CentralisedTracker.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -22,7 +22,7 @@ std::vector<Measurement> unclaimed(std::vector<Measurement>& ms, const std::vect
 } // namespace
 
 // ------------------------------------------------------------------ centralised entry point
-void CentralizedTracker::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
+void CentralisedTracker::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
                               const std::vector<Measurement>& ms) {
   bool anyScanned = std::any_of(sensors.begin(), sensors.end(), [&](const Sensor& s) { return s.scannedAt(t); });
   beginScan(t, t_id, anyScanned);
@@ -33,7 +33,7 @@ void CentralizedTracker::step(double t, TrackerId t_id, const std::vector<Sensor
 }
 
 // ------------------------------------------------------------------ phases
-void CentralizedTracker::beginScan(double t, TrackerId t_id, bool scanned) {
+void CentralisedTracker::beginScan(double t, TrackerId t_id, bool scanned) {
   const double dt = (last_t_ < 0) ? 0.0 : t - last_t_;
   last_t_ = t;
   t_id_ = t_id;
@@ -45,19 +45,19 @@ void CentralizedTracker::beginScan(double t, TrackerId t_id, bool scanned) {
 }
 
 // Associate confirmed calls associate with the confirmed bool true
-std::vector<Measurement> CentralizedTracker::associateConfirmed(const std::vector<Sensor>& sensors,
+std::vector<Measurement> CentralisedTracker::associateConfirmed(const std::vector<Sensor>& sensors,
                                                                 std::vector<Measurement> ms) {
   return associate(sensors, std::move(ms), true);
 }
 
 // Associate tentative calls associate with the confirmed bool false
-std::vector<Measurement> CentralizedTracker::associateTentative(const std::vector<Sensor>& sensors,
+std::vector<Measurement> CentralisedTracker::associateTentative(const std::vector<Sensor>& sensors,
                                                                 std::vector<Measurement> ms) {
   return associate(sensors, std::move(ms), false);
 }
 
 // Shared associate function for confirmed and tentative tracks.
-std::vector<Measurement> CentralizedTracker::associate(const std::vector<Sensor>& sensors,
+std::vector<Measurement> CentralisedTracker::associate(const std::vector<Sensor>& sensors,
                                                        std::vector<Measurement> ms, bool confirmed) {
   // No scan this tick: coast only. Misses are counted per scan, not per tick.
   if (!scanned_ || ms.empty()) return ms;
@@ -98,7 +98,7 @@ std::vector<Measurement> CentralizedTracker::associate(const std::vector<Sensor>
   return unclaimed(ms, used);
 }
 
-std::vector<Measurement> CentralizedTracker::associatePriors(const std::vector<Sensor>& sensors,
+std::vector<Measurement> CentralisedTracker::associatePriors(const std::vector<Sensor>& sensors,
                                                                  std::vector<Measurement> ms,
                                                                  std::vector<trackPrior>& priors) {
   if (!scanned_) return ms;
@@ -149,7 +149,7 @@ std::vector<Measurement> CentralizedTracker::associatePriors(const std::vector<S
   return unclaimed(ms, used);
 }
 
-void CentralizedTracker::promote(trackPrior& c, const EKF& aged, const Measurement& m, const Sensor& s) {
+void CentralisedTracker::promote(trackPrior& c, const EKF& aged, const Measurement& m, const Sensor& s) {
   Internal n;
   n.kf = aged;
   // The neighbour's estimate contains none of THIS node's measurements (priors are never
@@ -165,7 +165,7 @@ void CentralizedTracker::promote(trackPrior& c, const EKF& aged, const Measureme
   c.promoted = true;
 }
 
-void CentralizedTracker::spawnTentatives(const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) {
+void CentralisedTracker::spawnTentatives(const std::vector<Sensor>& sensors, const std::vector<Measurement>& ms) {
   const size_t pre_existing = pool_.size();
   for (size_t j = 0; j < ms.size(); ++j) {
     // Several sensors often see the same target on one tick: don't spawn twins
@@ -194,7 +194,7 @@ void CentralizedTracker::spawnTentatives(const std::vector<Sensor>& sensors, con
   }
 }
 
-void CentralizedTracker::endScan() {
+void CentralisedTracker::endScan() {
   if (!scanned_) return;  // coast-only tick: no evidence either way
 
   // A track that no phase updated this scan has missed.
@@ -226,7 +226,7 @@ void CentralizedTracker::endScan() {
   pool_.resize(w);
 }
 
-std::vector<Track> CentralizedTracker::tracks() const {
+std::vector<Track> CentralisedTracker::tracks() const {
   std::vector<Track> out;
   for (const auto& tr : pool_) {
     Track t = tr.trackInfo; t.x = tr.kf.x; t.P = tr.kf.P;

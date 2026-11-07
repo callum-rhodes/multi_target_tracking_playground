@@ -1,4 +1,4 @@
-#include "tracking/Decentralized.hpp"
+#include "tracking/Decentralised.hpp"
 
 #include <algorithm>
 
@@ -61,15 +61,15 @@ trackPrior* findPriors(std::vector<trackPrior>& v, TrackerId from, uint32_t id) 
 
 }  // namespace
 
-DecentralizedFusion::DecentralizedFusion(const TrackerParams& tp, size_t n, CommNetwork& net)
+DecentralisedFusion::DecentralisedFusion(const TrackerParams& tp, size_t n, CommNetwork& net)
     : tp_(tp), net_(net) {
   nodes_.reserve(n);
   for (size_t k = 0; k < n; ++k)
-    nodes_.push_back(Node{static_cast<SensorId>(k),
-                          CentralizedTracker(tp), {}, {}, {}, 0.0});
+    nodes_.push_back(Node{static_cast<TrackerId>(k), {static_cast<TrackerId>(k)},
+                          CentralisedTracker(tp), {}, {}, {}, 0.0});
 }
 
-void DecentralizedFusion::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
+void DecentralisedFusion::step(double t, TrackerId t_id, const std::vector<Sensor>& sensors,
                                const std::vector<Measurement>& ms) {
   // Per-node measurement lists. Each list is fed through the node's phases and shrinks as
   // phases claim measurements, so what is left at the end is exactly what spawns tentatives.
@@ -121,7 +121,7 @@ void DecentralizedFusion::step(double t, TrackerId t_id, const std::vector<Senso
   for (auto& n : nodes_) n.fused = TrackFusion(n, t);
 }
 
-void DecentralizedFusion::updatePriors(Node& n, double t) const {
+void DecentralisedFusion::updatePriors(Node& n, double t) const {
   // What this node already tracks itself, after this tick's association against confirmed tracks.
   // (Local tentatives are deliberately left out: if one covers the same target as a candidate,
   // the candidate is tried first, so it takes the measurements and the tentative starves.)
@@ -172,7 +172,7 @@ void DecentralizedFusion::updatePriors(Node& n, double t) const {
   }
 }
 
-std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) const {
+std::vector<Track> DecentralisedFusion::TrackFusion(const Node& self, double t) const {
   std::vector<Track> fusedTracks;
   for (auto& tr : self.local.tracks()) if (tr.status == TrackStatus::Confirmed) fusedTracks.push_back(tr);
 
@@ -199,6 +199,12 @@ std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) 
       usedV[c.i] = usedR[c.j] = true;
       fusedTracks[c.i].fused_from.push_back({from, remote[c.j].id});      // record the incoming belief
       Vec6 x; Mat6 P;
+      // --- [Optional] --- Linearise distance at the gate boundary to avoid flickering
+      // const double r = std::sqrt(c.d);
+      // const double delta = std::sqrt(0.5 * tp_.track_gate_chi2);
+      // const double w = (r <= delta) ? 1.0 : delta / r;
+      // remote[c.j].P /= w;
+      // --- [Optional] ---
       covarianceIntersection(fusedTracks[c.i].x, fusedTracks[c.i].P, remote[c.j].x, remote[c.j].P, x, P);
       fusedTracks[c.i].x = x; fusedTracks[c.i].P = P; fusedTracks[c.i].status = TrackStatus::Fused;
     }
@@ -206,7 +212,7 @@ std::vector<Track> DecentralizedFusion::TrackFusion(const Node& self, double t) 
   return fusedTracks;
 }
 
-std::vector<Track> DecentralizedFusion::tracks() const {
+std::vector<Track> DecentralisedFusion::tracks() const {
   std::vector<Track> all;
   for (const auto& n : nodes_) {
     all.insert(all.end(), n.fused.begin(), n.fused.end());   // confirmed: post-fusion track list of this node
@@ -214,6 +220,14 @@ std::vector<Track> DecentralizedFusion::tracks() const {
       if (t.status == TrackStatus::Unconfirmed) all.push_back(t);  // tentative + unfused: this node's own, unfused
   }
   return all;
+}
+
+std::vector<Track> DecentralisedFusion::preFusionTracks() const {
+  std::vector<Track> out;
+  for (const auto& n : nodes_)
+    for (const auto& t : n.local.tracks())
+      if (t.status == TrackStatus::Confirmed) out.push_back(t);
+  return out;
 }
 
 }  // namespace sfsim

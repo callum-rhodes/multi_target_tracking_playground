@@ -143,7 +143,7 @@ TargetSpec parseTarget(const YAML::Node& n) {
 void validate(const ScenarioConfig& sc) {
   if (sc.sim.dt <= 0.0) throw std::runtime_error("sim.dt must be > 0");
   if (sc.sensors.empty()) throw std::runtime_error("at least one sensor is required");
-  if (sc.sensors.size() > 64)  // CentralizedTracker tracks "which sensors fused" in a 64-bit mask
+  if (sc.sensors.size() > 64)  // CentralisedTracker tracks "which sensors fused" in a 64-bit mask
     throw std::runtime_error("at most 64 sensors are supported");
   std::set<TargetId> ids;
   for (const auto& t : sc.targets)
@@ -164,8 +164,8 @@ ScenarioConfig parse(const YAML::Node& root) {
   }
 
   const std::string fusion = opt<std::string>(root, "fusion", "centralised");
-  if (fusion == "centralised" || fusion == "centralized") sc.decentralised = false;
-  else if (fusion == "decentralised" || fusion == "decentralized") sc.decentralised = true;
+  if (fusion == "centralised" || fusion == "centralised") sc.decentralised = false;
+  else if (fusion == "decentralised" || fusion == "decentralised") sc.decentralised = true;
   else fail(root["fusion"], "fusion must be 'centralised' or 'decentralised'");
 
   if (const YAML::Node c = root["comms"]) {

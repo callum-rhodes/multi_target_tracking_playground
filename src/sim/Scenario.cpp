@@ -1,8 +1,8 @@
 #include "sim/Scenario.hpp"
 #include <numbers>
 #include <stdexcept>
-#include "tracking/CentralizedTracker.hpp"
-#include "tracking/Decentralized.hpp"
+#include "tracking/CentralisedTracker.hpp"
+#include "tracking/Decentralised.hpp"
 
 namespace sfsim {
 
@@ -39,9 +39,9 @@ Simulation buildSimulation(const ScenarioConfig& sc) {
 
   // Fusion is created last: it needs the final sensor count and references the sim's params/comms.
   if (sc.decentralised)
-    sim.setFusion(std::make_unique<DecentralizedFusion>(sim.trackerParams(), sim.sensors().size(), sim.comms()));
+    sim.setFusion(std::make_unique<DecentralisedFusion>(sim.trackerParams(), sim.sensors().size(), sim.comms()));
   else
-    sim.setFusion(std::make_unique<CentralizedTracker>(sim.trackerParams()));
+    sim.setFusion(std::make_unique<CentralisedTracker>(sim.trackerParams()));
   return sim;
 }
 // ==== KEEPING THE OLD BUILT-IN SCENARIO FOR REFERENCE ====

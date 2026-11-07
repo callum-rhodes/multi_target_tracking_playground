@@ -352,14 +352,14 @@ static void drawScene(App& app) {
       const float r = (float)Viewport::altitudeToRadius(pos.z(), 7.0) + 3.0f;
       dl->AddCircle(p, r, col, 24, 1.5f);
       dl->AddLine(p, scr(vp, pos + Vec3(vel.x(), vel.y(), 0) * 5.0), col, 1.5f);  // 5 s lead
-      if (app.showCov && t.status == TrackStatus::Confirmed) drawCovariance(dl, vp, t, withAlpha(col, 120));
+      if (app.showCov && t.status != TrackStatus::Unconfirmed) drawCovariance(dl, vp, t, withAlpha(col, 120));
       std::snprintf(buf, sizeof buf, "#%u_%u", t.tracker_id, t.id);
       dl->AddText(ImVec2(p.x + r + 3, p.y + 2), col, buf);
     }
   }
   // Fusion links (decentralised only)
   // Draw links between fused tracks and their sources.
-  if (app.decentralised){
+  if (app.decentralised && app.showTracks) {
     if (app.viewingNode < 0) {   // "all" condition
       std::unordered_map<TrackKey, const Track*> TrackByKey;
       for (const auto& t : snap.tracks)
@@ -381,9 +381,30 @@ static void drawScene(App& app) {
         }
       }
     } 
-    // else {
-    //   continue;  // TODO: show only the links for this node's tracks
-    // }
+    else {
+      const ImU32 col = IM_COL32(90, 200, 255, 255);
+
+      // Fused versions of this node's tracks, keyed so we can link local -> fused.
+      std::unordered_map<TrackKey, const Track*> fusedByKey;
+      for (const auto& t : snap.tracks)
+        if (t.status == TrackStatus::Fused && t.tracker_id == (uint32_t)app.viewingNode)
+          fusedByKey[trackKey(t.tracker_id, t.id)] = &t;
+
+      for (const auto& t : snap.unfusedTracks) {
+        if (t.tracker_id != (uint32_t)app.viewingNode) continue;
+        const ImVec2 p = scr(vp, t.x.head<3>());
+        const float r = (float)Viewport::altitudeToRadius(t.x.z(), 7.0) + 3.0f;
+        dl->AddRect(ImVec2(p.x - r, p.y - r), ImVec2(p.x + r, p.y + r), col, 0.0f, 0, 1.5f);
+        if (app.showCov) drawCovariance(dl, vp, t, withAlpha(col, 120));
+
+        // Dashed line to the fused estimate: its length is how far fusion moved the track.
+        if (auto it = fusedByKey.find(trackKey(t.tracker_id, t.id)); it != fusedByKey.end())
+          drawDashedLine(dl, p, scr(vp, it->second->x.head<3>()), withAlpha(col, 200));
+
+        std::snprintf(buf, sizeof buf, "L#%u_%u", t.tracker_id, t.id);
+        dl->AddText(ImVec2(p.x - r, p.y + r + 2), col, buf);
+      }
+    }
   }
 
   // Truth
@@ -646,8 +667,8 @@ static void drawControls(App& app) {
     ImGui::SliderInt("delete misses", &p.delete_misses, 1, 200);
     ImGui::SliderInt("delete misses (tentative)", &p.delete_misses_tentative, 1, 200);
     sliderD("init velocity sigma (m/s)", &p.init_vel_sigma, 1.0, 500.0, "%.1f", kLog);
-    ImGui::SliderInt("prior confirm hits", &p.prior_confirm_hits, 1, 50);
-    ImGui::SliderInt("prior reset misses", &p.prior_reset_misses, 1, 50);
+    ImGui::SliderInt("prior confirm hits (decentralised only)", &p.prior_confirm_hits, 1, 50);
+    ImGui::SliderInt("prior reset misses (decentralised only)", &p.prior_reset_misses, 1, 50);
     if (ImGui::Button("Defaults")) p = TrackerParams{};
   }
   ImGui::PopItemWidth();

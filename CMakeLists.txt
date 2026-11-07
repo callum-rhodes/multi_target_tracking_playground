@@ -44,8 +44,8 @@ add_library(sfsim_core
   src/sensors/Sensor.cpp
   src/sensors/MeasurementModel.cpp
   src/tracking/ExtendedKalmanFilter.cpp
-  src/tracking/CentralizedTracker.cpp
-  src/tracking/Decentralized.cpp
+  src/tracking/CentralisedTracker.cpp
+  src/tracking/Decentralised.cpp
   src/sim/Simulation.cpp
   src/sim/CommNetwork.cpp
   src/sim/Scenario.cpp

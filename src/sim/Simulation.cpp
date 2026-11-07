@@ -18,7 +18,7 @@ void Simulation::step() {
     s.markScanned(t_);
   }
 
-  // 4. fusion (centralized or decentralized, behind IFusion)
+  // 4. fusion (centralised or decentralised, behind IFusion)
   if (fusion_) fusion_->step(t_, 0, sensors_, all);
 
   // 5. publish a snapshot for the view
@@ -27,6 +27,7 @@ void Simulation::step() {
   for (const auto& tg : targets_) if (tg.alive(t_)) snap_.truth.emplace_back(tg.id, tg.state);
   snap_.measurements = std::move(all);
   snap_.tracks = fusion_ ? fusion_->tracks() : std::vector<Track>{};
+  snap_.unfusedTracks = fusion_ ? fusion_->preFusionTracks() : std::vector<Track>{};
 
   tracker_rate_.tick();
 }

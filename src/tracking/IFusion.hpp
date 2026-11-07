@@ -18,7 +18,7 @@ struct TrackFusionRef {            // identifies one track in the system
 };
 
 struct Track {
-  uint32_t tracker_id = 0; // TrackerId of the tracker that created this track (for decentralized fusion)
+  uint32_t tracker_id = 0; // TrackerId of the tracker that created this track (for decentralised fusion)
   uint32_t id = 0;
   Vec6 x = Vec6::Zero();
   Mat6 P = Mat6::Identity();
@@ -38,7 +38,7 @@ struct trackPrior {
   bool promoted = false;       // already turned into a local track
 };
 
-// The seam between layers B and C. Centralized and decentralized
+// The seam between layers B and C. centralised and decentralised
 // architectures both implement this, so the sim loop and GUI never care which is active.
 class IFusion {
  public:
@@ -46,6 +46,9 @@ class IFusion {
   // `measurements` = everything delivered this tick (already noise-corrupted).
   virtual void step(double t, TrackerId t_id, const std::vector<Sensor>& sensors, const std::vector<Measurement>& measurements) = 0;
   virtual std::vector<Track> tracks() const = 0;
+
+  // Confirmed tracks as each node holds them BEFORE track-to-track fusion.
+  virtual std::vector<Track> preFusionTracks() const { return {}; }
 };
 
 }  // namespace sfsim
