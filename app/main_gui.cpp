@@ -660,7 +660,7 @@ static void drawControls(App& app) {
       return ImGui::SliderScalar(label, ImGuiDataType_Double, v, &lo, &hi, fmt, fl);
     };
     sliderD("process noise q_accel", &p.q_accel, 0.1, 1000.0, "%.2f", kLog);
-    sliderD("gate chi2 (3 dof)", &p.gate_chi2, 1.0, 20.0, "%.2f");
+    sliderD("gate chi2 (3 dof)", &p.gate_chi2, 1.0, 40.0, "%.2f");
     if (ImGui::IsItemHovered())
       ImGui::SetTooltip("3 dof: 95%% = 7.81, 99%% = 11.34, 99.9%% = 16.27");
     ImGui::SliderInt("confirm hits", &p.confirm_hits, 1, 200);
