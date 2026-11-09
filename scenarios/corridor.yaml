@@ -1,4 +1,4 @@
-name: "Default: 3 range/az/el sensors, 4 targets"
+name: "Corridor: 5 range/az/el sensors, 2 targets"
 sim: {dt: 0.02, seed: 1}
 fusion: decentralised            # or: centralised  (the GUI checkbox can still override at runtime)
 

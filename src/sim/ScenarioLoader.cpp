@@ -164,8 +164,8 @@ ScenarioConfig parse(const YAML::Node& root) {
   }
 
   const std::string fusion = opt<std::string>(root, "fusion", "centralised");
-  if (fusion == "centralised" || fusion == "centralised") sc.decentralised = false;
-  else if (fusion == "decentralised" || fusion == "decentralised") sc.decentralised = true;
+  if (fusion == "centralised") sc.decentralised = false;
+  else if (fusion == "decentralised") sc.decentralised = true;
   else fail(root["fusion"], "fusion must be 'centralised' or 'decentralised'");
 
   if (const YAML::Node c = root["comms"]) {
@@ -179,7 +179,7 @@ ScenarioConfig parse(const YAML::Node& root) {
 
   if (const YAML::Node t = root["tracker"]) {
     checkKeys(t, {"q_accel", "gate_chi2", "confirm_hits", "delete_misses", "delete_misses_tentative",
-                  "init_vel_sigma", "stale_after_s", "track_gate_chi2"}, "tracker");
+                  "init_vel_sigma", "stale_after_s", "track_gate_chi2", "prior_confirm_hits", "prior_reset_misses"}, "tracker");
     TrackerParams& p = sc.tracker;
     p.q_accel = opt(t, "q_accel", p.q_accel);
     p.gate_chi2 = opt(t, "gate_chi2", p.gate_chi2);
