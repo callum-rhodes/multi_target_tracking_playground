@@ -8,7 +8,16 @@ void Simulation::step() {
   // 1. true physics
   for (auto& tg : targets_) if (tg.alive(t_)) tg.model->advance(tg.state, cfg_.dt);
 
-  // 2+3. sensors observe truth and corrupt it
+  // 2. update comms topology (range checks) and clear if disabled
+  if (!comms().config().enabled){ // If comms are disabled
+    if (!comms().nodes().empty()){ comms().clearTopology(); } // clear comms if not empty
+  } else {
+    std::vector<std::pair<TrackerId, Vec3>> nodePos;
+    for (const auto& s : sensors_) nodePos.emplace_back(s.config().id, s.config().pose.position);
+    comms().updateTopology(nodePos); 
+  } 
+
+  // 3. sensors observe truth and corrupt it
   std::vector<Measurement> all;
   for (auto& s : sensors_) {
     if (!s.due(t_)) continue;

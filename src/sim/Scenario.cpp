@@ -21,13 +21,17 @@ Simulation buildSimulation(const ScenarioConfig& sc) {
   sim.trackerParams() = sc.tracker;     // assign into the sim-owned params: the tracker holds a reference to them
   sim.comms().config() = sc.comms;
 
+  std::vector<std::pair<TrackerId, Vec3>> comms_nodes;
   for (std::size_t i = 0; i < sc.sensors.size(); ++i) {
     SensorConfig c = sc.sensors[i];
     // The tracker code indexes `sensors` by id (sensors.at(m.sensor)) and uses ids as bit
     // positions, so id must equal index. Assigning it here makes a mismatch impossible.
     c.id = static_cast<SensorId>(i);
     sim.addSensor(c);
+    comms_nodes.emplace_back(c.id, c.pose.position);
   }
+
+  sim.comms().updateTopology(comms_nodes);
 
   for (const auto& ts : sc.targets) {
     Target t;
