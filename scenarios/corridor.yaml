@@ -2,7 +2,7 @@ name: "Default: 3 range/az/el sensors, 4 targets"
 sim: {dt: 0.02, seed: 1}
 fusion: decentralised            # or: centralised  (the GUI checkbox can still override at runtime)
 
-comms: {enabled: true, latency_s: 0.1, drop_prob: 0.05, period_s: 0.5}
+comms: {enabled: true, latency_s: 0.1, drop_prob: 0.05, period_s: 0.5, range_m: 750.0}
 
 tracker:
   q_accel: 80.0

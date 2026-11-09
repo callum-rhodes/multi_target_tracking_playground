@@ -60,6 +60,7 @@ struct App {
   std::string scenarioPath = kDefaultScenarioPath;   // set even on failure, so Ctrl+R retries after you fix the file
   int seed = (int)scenario.sim.seed;                 // still after `scenario`: initialised in declaration order
   bool decentralised = scenario.decentralised;
+  bool showComms = true; // show comm links by default
   Simulation sim = buildSimulation(scenario);
   Viewport vp;
   bool running = true;
@@ -359,50 +360,65 @@ static void drawScene(App& app) {
   }
   // Fusion links (decentralised only)
   // Draw links between fused tracks and their sources.
-  if (app.decentralised && app.showTracks) {
-    if (app.viewingNode < 0) {   // "all" condition
-      std::unordered_map<TrackKey, const Track*> TrackByKey;
-      for (const auto& t : snap.tracks)
-        if (t.status != TrackStatus::Unconfirmed) TrackByKey[trackKey(t.tracker_id, t.id)] = &t;
-
-      for (const auto& t : snap.tracks) {
-        if (t.status != TrackStatus::Fused) continue;
-        const ImVec2 a = scr(vp, t.x.head<3>());
-        for (const auto& r : t.fused_from) {
-          const auto it = TrackByKey.find(trackKey(r.t_id, r.id));
-          if (it == TrackByKey.end()) continue;               // the source track isn't in the snapshot
-          const ImVec2 b = scr(vp, it->second->x.head<3>());
-          // Push the two directions apart a little so A->B and B->A don't overdraw each other
-          const float dx = b.x - a.x, dy = b.y - a.y, len = std::max(std::sqrt(dx * dx + dy * dy), 1e-3f);
-          const float off = (t.tracker_id < r.t_id) ? 1.5f : -1.5f;
-          const ImVec2 n(-dy / len * off, dx / len * off);
-          drawDashedLine(dl, ImVec2(a.x + n.x, a.y + n.y), ImVec2(b.x + n.x, b.y + n.y),
-                        withAlpha(kSensorCol[t.tracker_id % 4], 200));
-        }
+  if (app.decentralised){
+    if(app.showComms) {
+      const ImU32 col = IM_COL32(255, 200, 60, 255);
+      const auto& netNodes = app.sim.comms().nodes();
+      for (const auto& [from, fromPos] : netNodes) {
+        for (const auto& [to, toPos] : netNodes) {
+          if (from == to || from < to) continue;
+          if (!app.sim.comms().connectionExists(from, to)) continue;
+          const ImVec2 a = scr(vp, fromPos);
+          const ImVec2 b = scr(vp, toPos);
+          drawDashedLine(dl, a, b, col, 1.0f, 4.0f, 6.0f);
+        }      
       }
-    } 
-    else {
-      const ImU32 col = IM_COL32(90, 200, 255, 255);
+    }
+    if(app.showTracks) {
+      if (app.viewingNode < 0) {   // "all" condition
+        std::unordered_map<TrackKey, const Track*> TrackByKey;
+        for (const auto& t : snap.tracks)
+          if (t.status != TrackStatus::Unconfirmed) TrackByKey[trackKey(t.tracker_id, t.id)] = &t;
 
-      // Fused versions of this node's tracks, keyed so we can link local -> fused.
-      std::unordered_map<TrackKey, const Track*> fusedByKey;
-      for (const auto& t : snap.tracks)
-        if (t.status == TrackStatus::Fused && t.tracker_id == (uint32_t)app.viewingNode)
-          fusedByKey[trackKey(t.tracker_id, t.id)] = &t;
+        for (const auto& t : snap.tracks) {
+          if (t.status != TrackStatus::Fused) continue;
+          const ImVec2 a = scr(vp, t.x.head<3>());
+          for (const auto& r : t.fused_from) {
+            const auto it = TrackByKey.find(trackKey(r.t_id, r.id));
+            if (it == TrackByKey.end()) continue;               // the source track isn't in the snapshot
+            const ImVec2 b = scr(vp, it->second->x.head<3>());
+            // Push the two directions apart a little so A->B and B->A don't overdraw each other
+            const float dx = b.x - a.x, dy = b.y - a.y, len = std::max(std::sqrt(dx * dx + dy * dy), 1e-3f);
+            const float off = (t.tracker_id < r.t_id) ? 1.5f : -1.5f;
+            const ImVec2 n(-dy / len * off, dx / len * off);
+            drawDashedLine(dl, ImVec2(a.x + n.x, a.y + n.y), ImVec2(b.x + n.x, b.y + n.y),
+                          withAlpha(kSensorCol[t.tracker_id % 4], 200));
+          }
+        }
+      } 
+      else {
+        const ImU32 col = IM_COL32(90, 200, 255, 255);
 
-      for (const auto& t : snap.unfusedTracks) {
-        if (t.tracker_id != (uint32_t)app.viewingNode) continue;
-        const ImVec2 p = scr(vp, t.x.head<3>());
-        const float r = (float)Viewport::altitudeToRadius(t.x.z(), 7.0) + 3.0f;
-        dl->AddRect(ImVec2(p.x - r, p.y - r), ImVec2(p.x + r, p.y + r), col, 0.0f, 0, 1.5f);
-        if (app.showCov) drawCovariance(dl, vp, t, withAlpha(col, 120));
+        // Fused versions of this node's tracks, keyed so we can link local -> fused.
+        std::unordered_map<TrackKey, const Track*> fusedByKey;
+        for (const auto& t : snap.tracks)
+          if (t.status == TrackStatus::Fused && t.tracker_id == (uint32_t)app.viewingNode)
+            fusedByKey[trackKey(t.tracker_id, t.id)] = &t;
 
-        // Dashed line to the fused estimate: its length is how far fusion moved the track.
-        if (auto it = fusedByKey.find(trackKey(t.tracker_id, t.id)); it != fusedByKey.end())
-          drawDashedLine(dl, p, scr(vp, it->second->x.head<3>()), withAlpha(col, 200));
+        for (const auto& t : snap.unfusedTracks) {
+          if (t.tracker_id != (uint32_t)app.viewingNode) continue;
+          const ImVec2 p = scr(vp, t.x.head<3>());
+          const float r = (float)Viewport::altitudeToRadius(t.x.z(), 7.0) + 3.0f;
+          dl->AddRect(ImVec2(p.x - r, p.y - r), ImVec2(p.x + r, p.y + r), col, 0.0f, 0, 1.5f);
+          if (app.showCov) drawCovariance(dl, vp, t, withAlpha(col, 120));
 
-        std::snprintf(buf, sizeof buf, "L#%u_%u", t.tracker_id, t.id);
-        dl->AddText(ImVec2(p.x - r, p.y + r + 2), col, buf);
+          // Dashed line to the fused estimate: its length is how far fusion moved the track.
+          if (auto it = fusedByKey.find(trackKey(t.tracker_id, t.id)); it != fusedByKey.end())
+            drawDashedLine(dl, p, scr(vp, it->second->x.head<3>()), withAlpha(col, 200));
+
+          std::snprintf(buf, sizeof buf, "L#%u_%u", t.tracker_id, t.id);
+          dl->AddText(ImVec2(p.x - r, p.y + r + 2), col, buf);
+        }
       }
     }
   }
@@ -596,6 +612,9 @@ static void drawControls(App& app) {
       float stale = (float)tp.stale_after_s;
       if (ImGui::SliderFloat("stale after (s)", &stale, 0.5f, 10.0f, "%.1f"))
         tp.stale_after_s = stale;
+      float range = (float)cc.range_m;
+      if (ImGui::SliderFloat("range (m)", &range, 100.0f, 10000.0f, "%.0f", ImGuiSliderFlags_Logarithmic))
+        cc.range_m = range;
       ImGui::EndDisabled();
 
       ImGui::SeparatorText("Track-to-track association");
@@ -613,6 +632,7 @@ static void drawControls(App& app) {
         std::string lbl = "node " + std::to_string(k);
         ImGui::RadioButton(lbl.c_str(), &app.viewingNode, (int)k);
       }
+      ImGui::Checkbox("Comm links", &app.showComms);
     }
   }
 

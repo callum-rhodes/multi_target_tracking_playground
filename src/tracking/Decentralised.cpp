@@ -83,7 +83,18 @@ void DecentralisedFusion::step(double t, TrackerId t_id, const std::vector<Senso
     byNode[k] = nodes_[k].local.associateConfirmed(sensors, std::move(byNode[k]));
   }
 
-  // 2. Broadcast confirmed local tracks on a slower schedule than the sim tick.
+  // 2. If the network is disabled, clear the topology so no packets are sent. Otherwise, update
+  //    the node positions for range checks.
+  if (!net_.config().enabled){
+    net_.clearTopology();
+  }
+  else {
+    for (auto& n : nodes_) {
+      net_.updateTopology({{n.id, sensors[n.id].config().pose.position}});
+    }
+  }
+
+  // 3. Broadcast confirmed local tracks on a slower schedule than the sim tick.
   for (auto& n : nodes_) {
     if (!sensors[n.id].config().enabled) continue;   // a "failed" node goes silent
     if (t + 1e-9 < n.next_tx) continue;
@@ -91,20 +102,20 @@ void DecentralisedFusion::step(double t, TrackerId t_id, const std::vector<Senso
     std::vector<Track> mine;
     for (auto& tr : n.local.tracks()) if (tr.status == TrackStatus::Confirmed) mine.push_back(tr);
     for (auto& peer : nodes_) {
-      if (peer.id == n.id) continue;
+      if (peer.id == n.id) continue; // don't send to self
       Packet p; p.from = n.id; p.to = peer.id; p.stamp = t; p.tracks = mine;
       net_.send(t, std::move(p));
     }
   }
 
-  // 3. Receive: keep only the newest packet per peer.
+  // 4. Receive: keep only the newest packet per peer.
   for (auto& n : nodes_)
     for (auto& p : net_.deliver(t, n.id)) {
       auto& slot = n.latest[p.from];
       if (p.stamp >= slot.stamp) slot = std::move(p);
     }
 
-  // 4. Local filtering, second half, now that this tick's packets are in. The order is the
+  // 5. Local filtering, second half, now that this tick's packets are in. The order is the
   //    priority order: priors (informed by a neighbour, tight gate) before existing
   //    tentatives (vague, wide gate), and spawning only from what nobody claimed.
   for (size_t k = 0; k < nodes_.size(); ++k) {
@@ -117,7 +128,7 @@ void DecentralisedFusion::step(double t, TrackerId t_id, const std::vector<Senso
     n.local.endScan();
   }
 
-  // 5. Rebuild each node's fused view.
+  // 6. Rebuild each node's fused view.
   for (auto& n : nodes_) n.fused = TrackFusion(n, t);
 }
 
