@@ -7,10 +7,13 @@ A C++20 / Dear ImGui sandbox for learning **multi-sensor, multi-target tracking*
 
 Truth, sensors and trackers all live in **3D**; the viewer is a **2D top-down** projection (altitude is shown as icon size and in labels). Everything is driven by small YAML scenario files and tweakable live from the GUI.
 
-> **This is a learning project, not production code.**
+> **This is a learning project, not production code. Watch a video demonstration by clicking below**
 
-<!-- TODO: add a screenshot or GIF, e.g. docs/assets/overview.png -->
-*Placeholder: screenshot of the main view with truth, measurements, tracks and covariance ellipses.*
+<p align="center">
+  <a href="https://youtu.be/OkfwXB6NlO8">
+    <img src="docs/assets/preview.png" alt="Watch the demo on YouTube" width="500">
+  </a>
+</p>
 
 ---
 
@@ -41,7 +44,7 @@ Truth, sensors and trackers all live in **3D**; the viewer is a **2D top-down** 
 - Telemetry table and a rolling per-target position-error plot.
 - In decentralised mode: view all nodes, or a single node (showing its unfused local tracks and the link to its fused estimate), plus comm-link overlay.
 
----
+<!-- ---
 
 ## Architecture
 
@@ -65,7 +68,7 @@ flowchart LR
 | C. Simulation | `src/sim` | Clock and execution order, comms network, scenario loading, `Snapshot` |
 | D. View | `app/main_gui.cpp`, `src/view` | ImGui front end; reads `Simulation::snapshot()` only |
 
-`sfsim_core` (layers A-C) has no rendering dependencies, so it is usable headless and testable.
+`sfsim_core` (layers A-C) has no rendering dependencies, so it is usable headless and testable. -->
 
 ### Project structure
 
@@ -246,14 +249,14 @@ $$
 
 with `omega` chosen from a 21-point grid to minimise `trace(P)`.
 
----
+<!-- ---
 
 ## Status and known limitations
 
 - Association is **greedy nearest-neighbour**, both for measurement-to-track and track-to-track. It can swap or split tracks when targets are close.
 - Track-to-track gating treats the two estimates' errors as independent. That is fine for deciding *whether* to fuse, but not exact.
 - One sensor per decentralised node and sensor id must equal its index in the scenario (at most 64 sensors).
-- The EKF assumes constant velocity, so manoeuvring targets rely on process noise (`q_accel`) to stay tracked.
+- The EKF assumes constant velocity, so manoeuvring targets rely on process noise (`q_accel`) to stay tracked. -->
 
 ---
 
@@ -275,4 +278,4 @@ cmake -S . -B build-profile -DCMAKE_BUILD_TYPE=Profile
 
 ## License
 
-<!-- TODO: choose a licence and add a LICENSE file -->
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.
